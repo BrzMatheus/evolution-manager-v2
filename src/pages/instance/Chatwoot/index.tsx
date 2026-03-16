@@ -14,6 +14,7 @@ import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormInput, FormSwitch, FormTags } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -36,6 +37,7 @@ import {
   ChatwootHistoryCandidateConversation,
   ChatwootHistoryContactActionResponse,
   ChatwootHistoryExecutionStatus,
+  ChatwootHistoryJob,
   ChatwootHistoryJobContact,
   ChatwootHistoryJobStatus,
   ChatwootHistoryScopeType,
@@ -158,6 +160,9 @@ const getConversationSelection = (contact: ChatwootHistoryJobContact) => contact
 const getCandidateConversations = (contact: ChatwootHistoryJobContact): ChatwootHistoryCandidateConversation[] =>
   getConversationSelection(contact)?.candidateConversations || [];
 
+const getRelatedInboxIds = (contact: ChatwootHistoryJobContact): number[] =>
+  getConversationSelection(contact)?.relatedInboxIds || contact.report?.evidence?.relatedInboxIds || [];
+
 const getDefaultCanonicalConversationId = (contact: ChatwootHistoryJobContact) =>
   getConversationSelection(contact)?.selectedConversationInternalId || contact.selectedConversationId || null;
 
@@ -179,6 +184,46 @@ const getConversationStatusVariant = (status: ChatwootHistoryCandidateConversati
   if (status === "pending" || status === "snoozed") return "warning";
   return "outline";
 };
+
+const buildConflictSummary = (contact: ChatwootHistoryJobContact) => {
+  const fragments: string[] = [];
+  const candidateConversations = getCandidateConversations(contact);
+  const relatedInboxIds = getRelatedInboxIds(contact);
+
+  if (contact.overlapCount > 0) {
+    fragments.push(`${contact.overlapCount} mensagem(ns) ja existem no Chatwoot`);
+  }
+
+  if (candidateConversations.length > 1) {
+    fragments.push(`${candidateConversations.length} conversas candidatas no inbox alvo`);
+  } else if (candidateConversations.length === 1) {
+    fragments.push(`1 conversa candidata no inbox alvo`);
+  }
+
+  if (relatedInboxIds.length > 0) {
+    fragments.push(`historico visto nas inboxes ${relatedInboxIds.join(", ")}`);
+  }
+
+  if (contact.report?.evidence?.sourceIdCollisionRisk) {
+    fragments.push("ha risco de colisao de source_id");
+  }
+
+  if (contact.chatwootMessageCount > 0) {
+    fragments.push("o merge deve preservar a midia ja salva no Chatwoot");
+  }
+
+  return fragments.join(" • ");
+};
+
+const getJobFailureReasons = (job?: ChatwootHistoryJob | null) =>
+  (job?.Contacts || [])
+    .filter((contact) => contact.executionStatus === "failed")
+    .map((contact) => ({
+      key: `${contact.jobId}:${contact.remoteJid}`,
+      displayName: getDisplayName(contact),
+      remoteJid: contact.remoteJid,
+      error: contact.report?.execution?.error || "Falha sem detalhe adicional.",
+    }));
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -219,6 +264,8 @@ function Chatwoot() {
   const [selectedRemoteJids, setSelectedRemoteJids] = useState<string[]>(focusedRemoteJid ? [focusedRemoteJid] : []);
   const [selectedPreviewRemoteJids, setSelectedPreviewRemoteJids] = useState<string[]>(focusedRemoteJid ? [focusedRemoteJid] : []);
   const [selectedCanonicalConversationIds, setSelectedCanonicalConversationIds] = useState<Record<string, number>>({});
+  const [mergeDialogContact, setMergeDialogContact] = useState<ChatwootHistoryJobContact | null>(null);
+  const [isJobDetailsDialogOpen, setIsJobDetailsDialogOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobModeFilter, setJobModeFilter] = useState("all");
@@ -287,6 +334,9 @@ function Chatwoot() {
   const visibleConflicts = conflicts.filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
   const filteredSelectableRemoteJids = filteredSelectableChats.map((chat) => chat.remoteJid);
   const visibleContactRemoteJids = visibleContacts.map((contact) => contact.remoteJid);
+  const selectedJobFailureReasons = getJobFailureReasons(selectedJob);
+  const isSelectedJobHydrated = Boolean(selectedJob && selectedJob.id === selectedJobId);
+  const selectedJobDetails = isSelectedJobHydrated ? selectedJob : null;
   const areAllScopeContactsSelected =
     scopeType !== "single" && filteredSelectableRemoteJids.length > 0 && filteredSelectableRemoteJids.every((remoteJid) => selectedRemoteJids.includes(remoteJid));
   const areAllPreviewContactsSelected =
@@ -412,6 +462,20 @@ function Chatwoot() {
       next[key] = internalId;
       return next;
     });
+  };
+
+  const openMergeDialog = (contact: ChatwootHistoryJobContact) => {
+    setMergeDialogContact(contact);
+  };
+
+  const openJobDetails = (jobId: string) => {
+    setActiveTab("sync-jobs");
+    setSelectedJobId(jobId);
+    setIsJobDetailsDialogOpen(true);
+  };
+
+  const closeMergeDialog = () => {
+    setMergeDialogContact(null);
   };
 
   const handleSelectAllScopeContacts = () => {
@@ -587,17 +651,14 @@ function Chatwoot() {
     }
   };
 
-  const handleContactAction = async (contact: ChatwootHistoryJobContact, action: ContactAction) => {
+  const executeContactAction = async (
+    contact: ChatwootHistoryJobContact,
+    action: Exclude<ContactAction, "openChatwootReview">,
+    canonicalConversationId?: number,
+  ) => {
     if (!instance) return;
 
-    if (action === "openChatwootReview") {
-      const reviewPayload = getReviewPayload(contact);
-      openExternal(reviewPayload?.chatwootReviewUrl || reviewPayload?.chatwootFallbackUrl || getConversationUrl(contact) || inboxStatus?.inboxUrl || chatwoot?.webhook_url || chatwoot?.url);
-      return;
-    }
-
     try {
-      const canonicalConversationId = action === "createRebuild" ? getSelectedCanonicalConversationId(contact) : undefined;
       const response = await contactActionChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -617,8 +678,29 @@ function Chatwoot() {
       setSelectedJobId(response.id);
       await refetchSelectedJob();
       toast.success(action === "ignore" ? "Contato ignorado." : action === "createRebuild" ? "Rebuild iniciado." : "Acao executada.");
+      return true;
     } catch (error) {
       showRequestError(error, "Nao foi possivel executar a acao.");
+      return false;
+    }
+  };
+
+  const handleContactAction = async (contact: ChatwootHistoryJobContact, action: ContactAction) => {
+    if (action === "openChatwootReview") {
+      const reviewPayload = getReviewPayload(contact);
+      openExternal(reviewPayload?.chatwootReviewUrl || reviewPayload?.chatwootFallbackUrl || getConversationUrl(contact) || inboxStatus?.inboxUrl || chatwoot?.webhook_url || chatwoot?.url);
+      return;
+    }
+
+    await executeContactAction(contact, action, action === "createRebuild" ? getSelectedCanonicalConversationId(contact) : undefined);
+  };
+
+  const handleConfirmMerge = async () => {
+    if (!mergeDialogContact) return;
+
+    const ok = await executeContactAction(mergeDialogContact, "createRebuild", getSelectedCanonicalConversationId(mergeDialogContact));
+    if (ok) {
+      closeMergeDialog();
     }
   };
 
@@ -695,6 +777,8 @@ function Chatwoot() {
                 </TableCell>
                 <TableCell className="text-sm">
                   <div>Canonica: {selectedCanonicalConversation ? `#${selectedCanonicalConversation.displayId}` : "--"}</div>
+                  <div>Inbox alvo: {reviewPayload?.chatwootInboxId || "--"}</div>
+                  <div>Inboxes relacionadas: {getRelatedInboxIds(contact).length ? getRelatedInboxIds(contact).join(", ") : "--"}</div>
                   <div>
                     Candidatas:{" "}
                     {candidateConversations.length
@@ -709,9 +793,11 @@ function Chatwoot() {
                   <div className="text-xs text-muted-foreground">Contato CW: {contact.chatwootContactId || "--"}</div>
                   <div className="text-xs text-muted-foreground">Review URL: {reviewPayload?.chatwootReviewUrl || "--"}</div>
                   {contact.report?.execution?.warning ? <div className="text-xs text-amber-600">{contact.report.execution.warning}</div> : null}
+                  {contact.report?.execution?.error ? <div className="text-xs text-destructive">{contact.report.execution.error}</div> : null}
                   {candidateConversations.length > 0 ? (
                     <div className="mt-3 space-y-2 rounded-md border p-2">
-                      <div className="text-xs font-medium text-muted-foreground">Comparar candidatas e escolher a canônica</div>
+                      <div className="text-xs font-medium text-muted-foreground">Resumo do conflito</div>
+                      <div className="text-xs text-muted-foreground">{buildConflictSummary(contact) || "Clique em Rebuild + merge para escolher a conversa canonica."}</div>
                       {candidateConversations.map((candidate) => {
                         const isCanonical = selectedCanonicalConversationId === candidate.internalId;
 
@@ -740,6 +826,7 @@ function Chatwoot() {
                               </div>
                             </div>
                             <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                              <div>Inbox: {candidate.inboxId || "--"}</div>
                               <div>Interna: {candidate.internalId}</div>
                               <div>Mensagens: {candidate.messageCount}</div>
                               <div>Primeira: {formatDateTime(candidate.firstMessageAt)}</div>
@@ -750,9 +837,13 @@ function Chatwoot() {
                       })}
                       <div className="flex flex-wrap gap-2">
                         <Button type="button" size="sm" variant="outline" onClick={() => setCanonicalConversation(contact, null)}>
-                          Criar nova canônica
+                          Criar nova canonica
                         </Button>
-                        {selectedCanonicalConversation ? <span className="text-xs text-muted-foreground">Rebuild vai preservar mídia em #{selectedCanonicalConversation.displayId} e importar só os extras.</span> : null}
+                        {selectedCanonicalConversation ? (
+                          <span className="text-xs text-muted-foreground">A canonica #{selectedCanonicalConversation.displayId} vai preservar a midia e receber so os extras.</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Sem escolha explicita, o merge pode criar uma nova conversa canonica.</span>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -764,14 +855,19 @@ function Chatwoot() {
                   </TableCell>
                 ) : null}
                 <TableCell>
-                  <Badge variant={statusBadgeVariant(contact.executionStatus)}>{executionLabels[contact.executionStatus]}</Badge>
+                  <div className="space-y-1">
+                    <Badge variant={statusBadgeVariant(contact.executionStatus)}>{executionLabels[contact.executionStatus]}</Badge>
+                    {contact.executionStatus === "failed" && contact.report?.execution?.error ? (
+                      <div className="max-w-xs text-xs text-destructive">{contact.report.execution.error}</div>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" disabled={!contact.isSafeDirectImport} onClick={() => handleContactAction(contact, "importDirect")}>
                       Importar
                     </Button>
-                    <Button size="sm" variant="secondary" disabled={contact.classification === "ignored"} onClick={() => handleContactAction(contact, "createRebuild")}>
+                    <Button size="sm" variant="secondary" disabled={contact.classification === "ignored"} onClick={() => openMergeDialog(contact)}>
                       Rebuild + merge
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => handleContactAction(contact, "ignore")}>
@@ -789,6 +885,14 @@ function Chatwoot() {
       </Table>
     </div>
   );
+
+  const mergeDialogCandidateConversations = mergeDialogContact ? getCandidateConversations(mergeDialogContact) : [];
+  const mergeDialogReviewPayload = mergeDialogContact ? getReviewPayload(mergeDialogContact) : null;
+  const mergeDialogRelatedInboxIds = mergeDialogContact ? getRelatedInboxIds(mergeDialogContact) : [];
+  const mergeDialogSelectedCanonicalConversationId = mergeDialogContact ? getSelectedCanonicalConversationId(mergeDialogContact) : null;
+  const mergeDialogSelectedCanonicalConversation = mergeDialogContact
+    ? getCandidateConversationByInternalId(mergeDialogContact, mergeDialogSelectedCanonicalConversationId)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -1182,7 +1286,7 @@ function Chatwoot() {
                           <TableCell>{formatDateTime(job.startedAt)}</TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-2">
-                              <Button size="sm" variant="outline" onClick={() => setSelectedJobId(job.id)}>
+                              <Button size="sm" variant="outline" onClick={() => openJobDetails(job.id)}>
                                 Detalhes
                               </Button>
                               <Button size="sm" variant="outline" onClick={() => handleDownloadCsv(job.id)}>
@@ -1325,6 +1429,189 @@ function Chatwoot() {
           </div>
         </TabsContent>
       </Tabs>
+      <Dialog open={isJobDetailsDialogOpen} onOpenChange={setIsJobDetailsDialogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalhes do job</DialogTitle>
+            <DialogDescription>Resumo rapido do job e motivo da falha quando houver erro na execucao.</DialogDescription>
+          </DialogHeader>
+
+          {!selectedJobId ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">Selecione um job para ver os detalhes.</div>
+          ) : selectedJobLoading || !selectedJobDetails ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">Carregando detalhes do job...</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={statusBadgeVariant(selectedJobDetails.jobStatus)}>{jobStatusLabels[selectedJobDetails.jobStatus]}</Badge>
+                <Badge variant="outline">{jobModeLabels[selectedJobDetails.mode]}</Badge>
+                <Badge variant="outline">Escopo {selectedJobDetails.scopeType}</Badge>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border p-4 text-sm">
+                  <div className="font-medium">Identificacao</div>
+                  <div className="mt-2 space-y-1 text-muted-foreground">
+                    <div>Job: {selectedJobDetails.id}</div>
+                    <div>Inicio: {formatDateTime(selectedJobDetails.startedAt)}</div>
+                    <div>Fim: {formatDateTime(selectedJobDetails.finishedAt)}</div>
+                    <div>Contatos: {selectedJobDetails.summary?.totalContacts || 0}</div>
+                  </div>
+                </div>
+                <div className="rounded-lg border p-4 text-sm">
+                  <div className="font-medium">Resumo de execucao</div>
+                  <div className="mt-2 space-y-1 text-muted-foreground">
+                    <div>Concluidos: {selectedJobDetails.summary?.completed || 0}</div>
+                    <div>Falhas: {selectedJobDetails.summary?.failed || 0}</div>
+                    <div>Ignorados: {selectedJobDetails.summary?.skipped || selectedJobDetails.summary?.ignored || 0}</div>
+                    <div>Safe direct: {selectedJobDetails.summary?.safeDirectImport || 0}</div>
+                  </div>
+                </div>
+              </div>
+
+              {selectedJobDetails.errorMessage ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  <div className="font-medium">Falha do job</div>
+                  <div className="mt-1">{selectedJobDetails.errorMessage}</div>
+                </div>
+              ) : null}
+
+              {selectedJobFailureReasons.length > 0 ? (
+                <div className="rounded-lg border p-4 text-sm">
+                  <div className="font-medium">Falhas por contato</div>
+                  <div className="mt-3 space-y-3">
+                    {selectedJobFailureReasons.map((failure) => (
+                      <div key={failure.key} className="rounded-md border border-destructive/20 bg-destructive/5 p-3">
+                        <div className="font-medium">
+                          {failure.displayName} <span className="text-muted-foreground">({failure.remoteJid})</span>
+                        </div>
+                        <div className="mt-1 text-destructive">{failure.error}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {!selectedJobDetails.errorMessage && selectedJobFailureReasons.length === 0 ? (
+                <div className="rounded-lg border p-4 text-sm text-muted-foreground">Esse job nao registrou erro detalhado no topo. Se houve problema, ele aparece na tabela detalhada dos contatos.</div>
+              ) : null}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => refetchSelectedJob()} disabled={selectedJobLoading || !selectedJobId}>
+              <RefreshCw className={cn("mr-2 h-4 w-4", selectedJobLoading && "animate-spin")} />
+              Atualizar detalhe
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setIsJobDetailsDialogOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(mergeDialogContact)} onOpenChange={(open) => (!open ? closeMergeDialog() : undefined)}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Escolher conversa canonica para o merge</DialogTitle>
+            <DialogDescription>
+              O merge preserva audio, imagem e anexos que ja estao no Chatwoot. Somente as mensagens extras do Evolution entram na conversa canonica escolhida.
+            </DialogDescription>
+          </DialogHeader>
+          {mergeDialogContact ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+                <div className="font-medium">Conflito detectado</div>
+                <div className="mt-2 text-muted-foreground">{buildConflictSummary(mergeDialogContact) || "Ha diferenca entre o historico do Evolution e o que ja existe no Chatwoot."}</div>
+                <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                  <div>Contato: {getDisplayName(mergeDialogContact)}</div>
+                  <div>Remote JID: {mergeDialogContact.remoteJid}</div>
+                  <div>Inbox alvo: {mergeDialogReviewPayload?.chatwootInboxId || "--"}</div>
+                  <div>Inboxes relacionadas: {mergeDialogRelatedInboxIds.length ? mergeDialogRelatedInboxIds.join(", ") : "--"}</div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">Conversas candidatas no Chatwoot</div>
+                  {mergeDialogCandidateConversations.length > 0 ? (
+                    <ScrollArea className="max-h-[420px] rounded-md border p-3">
+                      <div className="space-y-3">
+                        {mergeDialogCandidateConversations.map((candidate) => {
+                          const isCanonical = mergeDialogSelectedCanonicalConversationId === candidate.internalId;
+
+                          return (
+                            <div
+                              key={`${mergeDialogContact.jobId}:${mergeDialogContact.remoteJid}:merge-dialog:${candidate.internalId}`}
+                              className={cn(
+                                "w-full rounded-md border p-3 text-left transition-colors",
+                                isCanonical ? "border-primary bg-primary/5" : "bg-background hover:border-primary/40",
+                              )}>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <button type="button" onClick={() => setCanonicalConversation(mergeDialogContact, candidate.internalId)} className="flex items-center gap-2 text-left">
+                                  <input checked={isCanonical} readOnly className="h-4 w-4 accent-primary" type="radio" />
+                                  <span className="font-medium">#{candidate.displayId}</span>
+                                </button>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant={getConversationStatusVariant(candidate.status)}>{getConversationStatusLabel(candidate.status)}</Badge>
+                                  <Badge variant="outline">Inbox {candidate.inboxId || "--"}</Badge>
+                                  {candidate.attachmentMessageCount > 0 ? <Badge variant="secondary">Midia {candidate.attachmentMessageCount}</Badge> : null}
+                                  {candidate.overlapCount > 0 ? <Badge variant="outline">Overlap {candidate.overlapCount}</Badge> : null}
+                                </div>
+                              </div>
+                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                                <div>Interna: {candidate.internalId}</div>
+                                <div>Mensagens: {candidate.messageCount}</div>
+                                <div>Primeira: {formatDateTime(candidate.firstMessageAt)}</div>
+                                <div>Ultima: {formatDateTime(candidate.lastMessageAt || candidate.lastActivityAt)}</div>
+                              </div>
+                              {candidate.reviewUrl ? (
+                                <div className="mt-3">
+                                  <Button type="button" size="sm" variant="ghost" onClick={(event) => { event.stopPropagation(); openExternal(candidate.reviewUrl); }}>
+                                    Abrir no Chatwoot
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  ) : (
+                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                      Nenhuma conversa candidata foi encontrada no inbox alvo. O merge pode criar uma nova conversa canonica.
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="text-sm font-medium">Decisao do merge</div>
+                  <div className="text-sm text-muted-foreground">
+                    {mergeDialogSelectedCanonicalConversation
+                      ? `A conversa #${mergeDialogSelectedCanonicalConversation.displayId} sera a canonica e vai manter a midia ja salva no Chatwoot.`
+                      : "Nenhuma conversa canonica foi escolhida. Se continuar assim, o rebuild pode criar uma nova conversa canonica."}
+                  </div>
+                  <div className="grid gap-2 text-xs text-muted-foreground">
+                    <div>Evolution: {mergeDialogContact.evolutionMessageCount}</div>
+                    <div>Chatwoot: {mergeDialogContact.chatwootMessageCount}</div>
+                    <div>Overlap: {mergeDialogContact.overlapCount}</div>
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => setCanonicalConversation(mergeDialogContact, null)}>
+                    Criar nova canonica
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => closeMergeDialog()}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => handleConfirmMerge()} disabled={!mergeDialogContact || mergeDialogContact.classification === "ignored"}>
+              Executar merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

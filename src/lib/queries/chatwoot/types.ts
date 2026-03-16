@@ -63,6 +63,7 @@ export type ChatwootReviewPayload = {
 export type ChatwootHistoryCandidateConversation = {
   internalId: number;
   displayId: number;
+  inboxId?: number | null;
   status: "open" | "resolved" | "pending" | "snoozed" | "unknown";
   messageCount: number;
   attachmentMessageCount: number;
@@ -95,6 +96,7 @@ export type ChatwootHistoryContactReport = {
     hasLidAlias?: boolean;
     candidateConversationIds?: number[];
     candidateConversationDisplayIds?: number[];
+    relatedInboxIds?: number[];
     matchedCanonicalSourceIds?: string[];
     matchedFallbackSignatures?: string[];
     sourceIdCollisionRisk?: boolean;
@@ -102,6 +104,7 @@ export type ChatwootHistoryContactReport = {
   conversationSelection?: {
     selectedConversationInternalId?: number | null;
     selectedConversationDisplayId?: number | null;
+    relatedInboxIds?: number[];
     candidateConversations?: ChatwootHistoryCandidateConversation[];
   };
   overlapMetrics?: {
