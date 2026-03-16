@@ -33,6 +33,7 @@ import {
 } from "@/lib/queries/chatwoot/fetchChatwoot";
 import { exportChatwootHistoryCsv, useManageChatwoot } from "@/lib/queries/chatwoot/manageChatwoot";
 import {
+  ChatwootHistoryCandidateConversation,
   ChatwootHistoryContactActionResponse,
   ChatwootHistoryExecutionStatus,
   ChatwootHistoryJobContact,
@@ -152,6 +153,33 @@ const getUnsafeReasonLabel = (reason: ChatwootUnsafeReason) =>
     identity_conflict: "Identidade canonica ambigua",
   })[reason];
 
+const getConversationSelection = (contact: ChatwootHistoryJobContact) => contact.report?.conversationSelection || null;
+
+const getCandidateConversations = (contact: ChatwootHistoryJobContact): ChatwootHistoryCandidateConversation[] =>
+  getConversationSelection(contact)?.candidateConversations || [];
+
+const getDefaultCanonicalConversationId = (contact: ChatwootHistoryJobContact) =>
+  getConversationSelection(contact)?.selectedConversationInternalId || contact.selectedConversationId || null;
+
+const getCandidateConversationByInternalId = (contact: ChatwootHistoryJobContact, internalId?: number | null) =>
+  getCandidateConversations(contact).find((candidate) => candidate.internalId === internalId) || null;
+
+const getConversationStatusLabel = (status: ChatwootHistoryCandidateConversation["status"]) =>
+  ({
+    open: "Aberta",
+    resolved: "Resolvida",
+    pending: "Pendente",
+    snoozed: "Adiada",
+    unknown: "Desconhecida",
+  })[status];
+
+const getConversationStatusVariant = (status: ChatwootHistoryCandidateConversation["status"]) => {
+  if (status === "open") return "secondary";
+  if (status === "resolved") return "outline";
+  if (status === "pending" || status === "snoozed") return "warning";
+  return "outline";
+};
+
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -190,6 +218,7 @@ function Chatwoot() {
   const [selectionSearch, setSelectionSearch] = useState("");
   const [selectedRemoteJids, setSelectedRemoteJids] = useState<string[]>(focusedRemoteJid ? [focusedRemoteJid] : []);
   const [selectedPreviewRemoteJids, setSelectedPreviewRemoteJids] = useState<string[]>(focusedRemoteJid ? [focusedRemoteJid] : []);
+  const [selectedCanonicalConversationIds, setSelectedCanonicalConversationIds] = useState<Record<string, number>>({});
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobModeFilter, setJobModeFilter] = useState("all");
@@ -262,6 +291,9 @@ function Chatwoot() {
     scopeType !== "single" && filteredSelectableRemoteJids.length > 0 && filteredSelectableRemoteJids.every((remoteJid) => selectedRemoteJids.includes(remoteJid));
   const areAllPreviewContactsSelected =
     visibleContactRemoteJids.length > 0 && visibleContactRemoteJids.every((remoteJid) => selectedPreviewRemoteJids.includes(remoteJid));
+  const getContactSelectionKey = (contact: Pick<ChatwootHistoryJobContact, "jobId" | "remoteJid">) => `${contact.jobId}:${contact.remoteJid}`;
+  const getSelectedCanonicalConversationId = (contact: ChatwootHistoryJobContact) =>
+    selectedCanonicalConversationIds[getContactSelectionKey(contact)] ?? getDefaultCanonicalConversationId(contact);
 
   useEffect(() => {
     if (requestedTab) {
@@ -310,6 +342,31 @@ function Chatwoot() {
     }
   }, [chatwoot, form]);
 
+  useEffect(() => {
+    const contacts = selectedJob?.Contacts || [];
+    if (contacts.length === 0) {
+      return;
+    }
+
+    setSelectedCanonicalConversationIds((current) => {
+      const next = { ...current };
+
+      contacts.forEach((contact) => {
+        const defaultCanonicalConversationId = getDefaultCanonicalConversationId(contact);
+        if (!defaultCanonicalConversationId) {
+          return;
+        }
+
+        const key = getContactSelectionKey(contact);
+        if (!next[key]) {
+          next[key] = defaultCanonicalConversationId;
+        }
+      });
+
+      return next;
+    });
+  }, [selectedJob]);
+
   const showRequestError = (error: unknown, fallback: string) => {
     if (isAxiosError(error)) {
       toast.error(`Erro: ${error?.response?.data?.response?.message || error.message}`);
@@ -341,13 +398,30 @@ function Chatwoot() {
     setSelectedPreviewRemoteJids((current) => (current.includes(remoteJid) ? current.filter((item) => item !== remoteJid) : [...current, remoteJid]));
   };
 
+  const setCanonicalConversation = (contact: ChatwootHistoryJobContact, internalId?: number | null) => {
+    const key = getContactSelectionKey(contact);
+
+    setSelectedCanonicalConversationIds((current) => {
+      const next = { ...current };
+
+      if (!internalId) {
+        delete next[key];
+        return next;
+      }
+
+      next[key] = internalId;
+      return next;
+    });
+  };
+
   const handleSelectAllScopeContacts = () => {
     if (scopeType === "single") {
       return;
     }
 
     setSelectedRemoteJids((current) => {
-      if (areAllScopeContactsSelected) {
+      const everyVisibleSelected = filteredSelectableRemoteJids.every((remoteJid) => current.includes(remoteJid));
+      if (everyVisibleSelected) {
         return current.filter((remoteJid) => !filteredSelectableRemoteJids.includes(remoteJid));
       }
 
@@ -357,7 +431,8 @@ function Chatwoot() {
 
   const handleSelectAllPreviewContacts = () => {
     setSelectedPreviewRemoteJids((current) => {
-      if (areAllPreviewContactsSelected) {
+      const everyVisibleSelected = visibleContactRemoteJids.every((remoteJid) => current.includes(remoteJid));
+      if (everyVisibleSelected) {
         return current.filter((remoteJid) => !visibleContactRemoteJids.includes(remoteJid));
       }
 
@@ -443,6 +518,22 @@ function Chatwoot() {
       return;
     }
 
+    const conversationSelections =
+      mode === "rebuild"
+        ? visibleContacts
+            .filter((contact) => (selectionMode === "selected" ? selectedPreviewRemoteJids.includes(contact.remoteJid) : true))
+            .map((contact) => {
+              const canonicalConversationId = getSelectedCanonicalConversationId(contact);
+              return canonicalConversationId
+                ? {
+                    remoteJid: contact.remoteJid,
+                    canonicalConversationId,
+                  }
+                : null;
+            })
+            .filter((value): value is { remoteJid: string; canonicalConversationId: number } => Boolean(value))
+        : undefined;
+
     try {
       const job = await executeChatwootHistory({
         instanceName: instance.name,
@@ -452,6 +543,7 @@ function Chatwoot() {
           mode,
           selectionMode,
           remoteJids: selectionMode === "selected" ? selectedPreviewRemoteJids : undefined,
+          conversationSelections,
         },
       });
 
@@ -505,6 +597,7 @@ function Chatwoot() {
     }
 
     try {
+      const canonicalConversationId = action === "createRebuild" ? getSelectedCanonicalConversationId(contact) : undefined;
       const response = await contactActionChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -512,6 +605,7 @@ function Chatwoot() {
           jobId: contact.jobId,
           remoteJid: contact.remoteJid,
           action,
+          canonicalConversationId,
         },
       });
 
@@ -555,6 +649,9 @@ function Chatwoot() {
             const isSelected = selectedPreviewRemoteJids.includes(contact.remoteJid);
             const reviewPayload = getReviewPayload(contact);
             const consolidation = getConsolidation(contact);
+            const candidateConversations = getCandidateConversations(contact);
+            const selectedCanonicalConversationId = getSelectedCanonicalConversationId(contact);
+            const selectedCanonicalConversation = getCandidateConversationByInternalId(contact, selectedCanonicalConversationId);
 
             return (
               <TableRow key={`${contact.jobId}:${contact.remoteJid}`}>
@@ -597,14 +694,68 @@ function Chatwoot() {
                   <div>Safe direct: {contact.isSafeDirectImport ? "sim" : "nao"}</div>
                 </TableCell>
                 <TableCell className="text-sm">
-                  <div>Selecionada: {contact.selectedConversationId ? `#${contact.selectedConversationId}` : "--"}</div>
-                  <div>Candidatas: {contact.candidateConversationIds.length ? contact.candidateConversationIds.map((item) => `#${item}`).join(", ") : "--"}</div>
-                  <div>Rebuild: {contact.rebuiltConversationId ? `#${contact.rebuiltConversationId}` : "--"}</div>
+                  <div>Canonica: {selectedCanonicalConversation ? `#${selectedCanonicalConversation.displayId}` : "--"}</div>
+                  <div>
+                    Candidatas:{" "}
+                    {candidateConversations.length
+                      ? candidateConversations.map((item) => `#${item.displayId}`).join(", ")
+                      : contact.candidateConversationIds.length
+                        ? `${contact.candidateConversationIds.length} interna(s)`
+                        : "--"}
+                  </div>
+                  <div>Rebuild: {contact.rebuiltConversationId ? `interna #${contact.rebuiltConversationId}` : "--"}</div>
                   <div>Supersedidas: {consolidation?.supersededConversationIds?.length ? consolidation.supersededConversationIds.map((item) => `#${item}`).join(", ") : "--"}</div>
                   <div>Migradas: {consolidation?.movedChatwootMessageCount ?? 0}</div>
                   <div className="text-xs text-muted-foreground">Contato CW: {contact.chatwootContactId || "--"}</div>
                   <div className="text-xs text-muted-foreground">Review URL: {reviewPayload?.chatwootReviewUrl || "--"}</div>
                   {contact.report?.execution?.warning ? <div className="text-xs text-amber-600">{contact.report.execution.warning}</div> : null}
+                  {candidateConversations.length > 0 ? (
+                    <div className="mt-3 space-y-2 rounded-md border p-2">
+                      <div className="text-xs font-medium text-muted-foreground">Comparar candidatas e escolher a canônica</div>
+                      {candidateConversations.map((candidate) => {
+                        const isCanonical = selectedCanonicalConversationId === candidate.internalId;
+
+                        return (
+                          <div
+                            key={`${contact.jobId}:${contact.remoteJid}:candidate:${candidate.internalId}`}
+                            className={cn("rounded-md border p-2 transition-colors", isCanonical ? "border-primary bg-primary/5" : "bg-background")}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setCanonicalConversation(contact, candidate.internalId)}
+                                className="flex items-center gap-2 text-left">
+                                <input checked={isCanonical} readOnly className="h-4 w-4 accent-primary" type="radio" />
+                                <span className="font-medium">#{candidate.displayId}</span>
+                              </button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant={getConversationStatusVariant(candidate.status)}>{getConversationStatusLabel(candidate.status)}</Badge>
+                                {candidate.attachmentMessageCount > 0 ? <Badge variant="secondary">Midia {candidate.attachmentMessageCount}</Badge> : null}
+                                {candidate.overlapCount > 0 ? <Badge variant="outline">Overlap {candidate.overlapCount}</Badge> : null}
+                                {candidate.reviewUrl ? (
+                                  <Button type="button" size="sm" variant="ghost" onClick={() => openExternal(candidate.reviewUrl)}>
+                                    Abrir
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                              <div>Interna: {candidate.internalId}</div>
+                              <div>Mensagens: {candidate.messageCount}</div>
+                              <div>Primeira: {formatDateTime(candidate.firstMessageAt)}</div>
+                              <div>Ultima: {formatDateTime(candidate.lastMessageAt || candidate.lastActivityAt)}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setCanonicalConversation(contact, null)}>
+                          Criar nova canônica
+                        </Button>
+                        {selectedCanonicalConversation ? <span className="text-xs text-muted-foreground">Rebuild vai preservar mídia em #{selectedCanonicalConversation.displayId} e importar só os extras.</span> : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </TableCell>
                 {options?.showJob ? (
                   <TableCell className="text-sm">

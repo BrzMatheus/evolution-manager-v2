@@ -60,6 +60,22 @@ export type ChatwootReviewPayload = {
   chatwootFallbackUrl: string | null;
 };
 
+export type ChatwootHistoryCandidateConversation = {
+  internalId: number;
+  displayId: number;
+  status: "open" | "resolved" | "pending" | "snoozed" | "unknown";
+  messageCount: number;
+  attachmentMessageCount: number;
+  overlapCount: number;
+  sourceIdCollisionRisk: boolean;
+  firstMessageAt?: string | null;
+  lastMessageAt?: string | null;
+  lastActivityAt?: string | null;
+  matchedCanonicalSourceIds?: string[];
+  matchedFallbackSignatures?: string[];
+  reviewUrl?: string | null;
+};
+
 export type ChatwootHistoryContactReport = {
   aliases?: string[];
   diagnosis?: {
@@ -78,9 +94,15 @@ export type ChatwootHistoryContactReport = {
   evidence?: {
     hasLidAlias?: boolean;
     candidateConversationIds?: number[];
+    candidateConversationDisplayIds?: number[];
     matchedCanonicalSourceIds?: string[];
     matchedFallbackSignatures?: string[];
     sourceIdCollisionRisk?: boolean;
+  };
+  conversationSelection?: {
+    selectedConversationInternalId?: number | null;
+    selectedConversationDisplayId?: number | null;
+    candidateConversations?: ChatwootHistoryCandidateConversation[];
   };
   overlapMetrics?: {
     evolutionMessageCount?: number;
@@ -119,6 +141,9 @@ export type ChatwootHistoryContactReport = {
   consolidation?: {
     strategy?: string;
     candidateConversationIds?: number[];
+    candidateConversationDisplayIds?: number[];
+    canonicalConversationInternalId?: number | null;
+    canonicalConversationDisplayId?: number | null;
     supersededConversationIds?: number[];
     movedChatwootMessageCount?: number;
     resolvedSupersededConversationIds?: number[];
@@ -251,12 +276,17 @@ export type ChatwootHistoryExecutePayload = {
   mode: "importDirect" | "rebuild";
   selectionMode: "allSafe" | "selected";
   remoteJids?: string[];
+  conversationSelections?: {
+    remoteJid: string;
+    canonicalConversationId?: number;
+  }[];
 };
 
 export type ChatwootHistoryContactActionPayload = {
   jobId: string;
   remoteJid: string;
   action: "importDirect" | "createRebuild" | "ignore" | "openChatwootReview";
+  canonicalConversationId?: number;
 };
 
 export type ChatwootHistoryReprocessPayload = {
