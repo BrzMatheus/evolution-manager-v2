@@ -113,7 +113,16 @@ export type ChatwootHistoryContactReport = {
   execution?: {
     status?: ChatwootHistoryExecutionStatus;
     error?: string | null;
+    warning?: string | null;
     finishedAt?: string;
+  };
+  consolidation?: {
+    strategy?: string;
+    candidateConversationIds?: number[];
+    supersededConversationIds?: number[];
+    movedChatwootMessageCount?: number;
+    resolvedSupersededConversationIds?: number[];
+    failedSupersededConversationIds?: number[];
   };
   chatwootConversationUrl?: string | null;
   rebuiltConversationUrl?: string | null;

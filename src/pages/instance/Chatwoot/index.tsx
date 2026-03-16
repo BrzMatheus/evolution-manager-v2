@@ -86,7 +86,7 @@ const classificationLabels = {
 
 const suggestedActionLabels = {
   import_direct: "Importar direto",
-  create_rebuild: "Criar reconstruida",
+  create_rebuild: "Rebuild + merge",
   open_chatwoot: "Abrir no Chatwoot",
   ignore: "Ignorar",
 } as const;
@@ -111,7 +111,7 @@ const jobStatusLabels: Record<ChatwootHistoryJobStatus, string> = {
 const jobModeLabels = {
   dryRun: "Dry run",
   importDirect: "Importacao direta",
-  rebuild: "Rebuild",
+  rebuild: "Rebuild + merge",
 } as const;
 
 const scopeLabels: Record<ChatwootHistoryScopeType, string> = {
@@ -137,6 +137,7 @@ const getRequestedTab = (value: string | null): HistoryTabValue | null => {
 const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString("pt-BR") : "--");
 const getDisplayName = (item: Pick<ChatType, "pushName" | "remoteJid"> | Pick<ChatwootHistoryJobContact, "pushName" | "remoteJid">) => item.pushName || item.remoteJid.split("@")[0];
 const getReviewPayload = (contact: ChatwootHistoryJobContact): ChatwootReviewPayload | null => contact.report?.review || null;
+const getConsolidation = (contact: ChatwootHistoryJobContact) => contact.report?.consolidation || null;
 const getConversationUrl = (contact: ChatwootHistoryJobContact) =>
   getReviewPayload(contact)?.chatwootReviewUrl || contact.report?.rebuiltConversationUrl || contact.report?.chatwootConversationUrl || null;
 const isOpenReviewResponse = (response: ChatwootHistoryContactActionResponse): response is Extract<ChatwootHistoryContactActionResponse, { action: "openChatwootReview" }> =>
@@ -255,6 +256,12 @@ function Chatwoot() {
   });
   const visibleContacts = (selectedJob?.Contacts || []).filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
   const visibleConflicts = conflicts.filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
+  const filteredSelectableRemoteJids = filteredSelectableChats.map((chat) => chat.remoteJid);
+  const visibleContactRemoteJids = visibleContacts.map((contact) => contact.remoteJid);
+  const areAllScopeContactsSelected =
+    scopeType !== "single" && filteredSelectableRemoteJids.length > 0 && filteredSelectableRemoteJids.every((remoteJid) => selectedRemoteJids.includes(remoteJid));
+  const areAllPreviewContactsSelected =
+    visibleContactRemoteJids.length > 0 && visibleContactRemoteJids.every((remoteJid) => selectedPreviewRemoteJids.includes(remoteJid));
 
   useEffect(() => {
     if (requestedTab) {
@@ -332,6 +339,30 @@ function Chatwoot() {
 
   const togglePreviewSelection = (remoteJid: string) => {
     setSelectedPreviewRemoteJids((current) => (current.includes(remoteJid) ? current.filter((item) => item !== remoteJid) : [...current, remoteJid]));
+  };
+
+  const handleSelectAllScopeContacts = () => {
+    if (scopeType === "single") {
+      return;
+    }
+
+    setSelectedRemoteJids((current) => {
+      if (areAllScopeContactsSelected) {
+        return current.filter((remoteJid) => !filteredSelectableRemoteJids.includes(remoteJid));
+      }
+
+      return [...new Set([...current, ...filteredSelectableRemoteJids])];
+    });
+  };
+
+  const handleSelectAllPreviewContacts = () => {
+    setSelectedPreviewRemoteJids((current) => {
+      if (areAllPreviewContactsSelected) {
+        return current.filter((remoteJid) => !visibleContactRemoteJids.includes(remoteJid));
+      }
+
+      return [...new Set([...current, ...visibleContactRemoteJids])];
+    });
   };
 
   const handleSaveConnection = async (data: FormSchema) => {
@@ -523,6 +554,7 @@ function Chatwoot() {
           {contacts.map((contact) => {
             const isSelected = selectedPreviewRemoteJids.includes(contact.remoteJid);
             const reviewPayload = getReviewPayload(contact);
+            const consolidation = getConsolidation(contact);
 
             return (
               <TableRow key={`${contact.jobId}:${contact.remoteJid}`}>
@@ -568,8 +600,11 @@ function Chatwoot() {
                   <div>Selecionada: {contact.selectedConversationId ? `#${contact.selectedConversationId}` : "--"}</div>
                   <div>Candidatas: {contact.candidateConversationIds.length ? contact.candidateConversationIds.map((item) => `#${item}`).join(", ") : "--"}</div>
                   <div>Rebuild: {contact.rebuiltConversationId ? `#${contact.rebuiltConversationId}` : "--"}</div>
+                  <div>Supersedidas: {consolidation?.supersededConversationIds?.length ? consolidation.supersededConversationIds.map((item) => `#${item}`).join(", ") : "--"}</div>
+                  <div>Migradas: {consolidation?.movedChatwootMessageCount ?? 0}</div>
                   <div className="text-xs text-muted-foreground">Contato CW: {contact.chatwootContactId || "--"}</div>
                   <div className="text-xs text-muted-foreground">Review URL: {reviewPayload?.chatwootReviewUrl || "--"}</div>
+                  {contact.report?.execution?.warning ? <div className="text-xs text-amber-600">{contact.report.execution.warning}</div> : null}
                 </TableCell>
                 {options?.showJob ? (
                   <TableCell className="text-sm">
@@ -586,7 +621,7 @@ function Chatwoot() {
                       Importar
                     </Button>
                     <Button size="sm" variant="secondary" disabled={contact.classification === "ignored"} onClick={() => handleContactAction(contact, "createRebuild")}>
-                      Rebuild
+                      Rebuild + merge
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => handleContactAction(contact, "ignore")}>
                       Ignorar
@@ -818,6 +853,16 @@ function Chatwoot() {
                       <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
                       <Input value={selectionSearch} onChange={(event) => setSelectionSearch(event.target.value)} className="pl-9" placeholder="Filtrar contatos por nome ou JID" />
                     </div>
+                    {scopeType !== "single" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={handleSelectAllScopeContacts} disabled={filteredSelectableRemoteJids.length === 0}>
+                          {areAllScopeContactsSelected ? "Desmarcar todos" : "Selecionar todos"}
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedRemoteJids([])} disabled={selectedRemoteJids.length === 0}>
+                          Limpar selecao
+                        </Button>
+                      </div>
+                    ) : null}
                     <ScrollArea className="h-72 rounded-lg border">
                       <div className="space-y-1 p-2">
                         {filteredSelectableChats.map((chat) => {
@@ -888,6 +933,14 @@ function Chatwoot() {
                         <div className="text-sm text-muted-foreground">Safe direct</div>
                         <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.safeDirectImport || 0}</div>
                       </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={handleSelectAllPreviewContacts} disabled={visibleContactRemoteJids.length === 0}>
+                        {areAllPreviewContactsSelected ? "Desmarcar todas" : "Selecionar todas"}
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedPreviewRemoteJids([])} disabled={selectedPreviewRemoteJids.length === 0}>
+                        Limpar selecao
+                      </Button>
                     </div>
                     {renderContactsTable(visibleContacts, { selectable: true })}
                   </>
