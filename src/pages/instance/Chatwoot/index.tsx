@@ -676,8 +676,8 @@ function Chatwoot() {
       }
 
       setSelectedJobId(response.id);
-      await refetchSelectedJob();
-      toast.success(action === "ignore" ? "Contato ignorado." : action === "createRebuild" ? "Rebuild iniciado." : "Acao executada.");
+      await Promise.all([refetchSelectedJob(), refetchHistoryJobs()]);
+      toast.success(action === "ignore" ? "Contato ignorado." : action === "createRebuild" ? "Rebuild iniciado." : "Importação executada.");
       return true;
     } catch (error) {
       showRequestError(error, "Nao foi possivel executar a acao.");
@@ -864,7 +864,18 @@ function Chatwoot() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={!contact.isSafeDirectImport} onClick={() => handleContactAction(contact, "importDirect")}>
+                    <Button
+                      size="sm"
+                      variant={contact.isSafeDirectImport ? "outline" : "destructive"}
+                      onClick={() => {
+                        if (!contact.isSafeDirectImport) {
+                          if (!window.confirm(`Este contato tem riscos: ${contact.unsafeReasons.map(getUnsafeReasonLabel).join(", ")}. Deseja forçar a importação?`)) {
+                            return;
+                          }
+                        }
+                        handleContactAction(contact, "importDirect");
+                      }}
+                    >
                       Importar
                     </Button>
                     <Button size="sm" variant="secondary" disabled={contact.classification === "ignored"} onClick={() => openMergeDialog(contact)}>
