@@ -558,6 +558,7 @@ function Chatwoot() {
     }
 
     try {
+      toast.info("Executando dry run...");
       const job = await analyzeChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -599,6 +600,7 @@ function Chatwoot() {
         : undefined;
 
     try {
+      toast.info(mode === "rebuild" ? "Executando rebuild..." : "Executando importação...");
       const job = await executeChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -659,6 +661,7 @@ function Chatwoot() {
     if (!instance) return;
 
     try {
+      toast.info("Executando ação...");
       const response = await contactActionChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
