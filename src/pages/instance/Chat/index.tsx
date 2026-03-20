@@ -199,7 +199,7 @@ function Chat() {
         </Avatar>
       </span>
       <div className="min-w-0 flex-1">
-        <span className="chat-title block font-medium">{chat.pushName || chat.remoteJid.split("@")[0]}</span>
+        <span className="chat-title block font-medium">{chat.pushName || (chat.phoneJid ? chat.phoneJid.split("@")[0] : chat.remoteJid.split("@")[0])}</span>
         <span className="chat-description block text-xs text-gray-500">{description}</span>
       </div>
       <DropdownMenu>
@@ -245,7 +245,8 @@ function Chat() {
                     <div className="px-2 text-xs font-medium text-muted-foreground">Contatos</div>
                     {chats?.map(
                       (chat: ChatType) =>
-                        chat.remoteJid.includes("@s.whatsapp.net") && renderChatItem(chat, chat.remoteJid.split("@")[0]),
+                        (chat.remoteJid.includes("@s.whatsapp.net") || chat.remoteJid.includes("@lid")) &&
+                          renderChatItem(chat, chat.phoneJid ? chat.phoneJid.split("@")[0] : chat.remoteJid.split("@")[0]),
                     )}
                   </div>
                 </div>

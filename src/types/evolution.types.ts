@@ -57,6 +57,7 @@ export type Chat = {
   id: string;
   pushName: string;
   remoteJid: string;
+  phoneJid?: string;
   labels: string[] | null;
   profilePicUrl: string;
   createdAt: string;
