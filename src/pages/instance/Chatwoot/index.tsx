@@ -75,7 +75,7 @@ const formSchema = z.object({
 
 type FormSchema = z.infer<typeof formSchema>;
 type HistoryTabValue = "connection" | "inbox-mapping" | "history-import" | "sync-jobs" | "conflict-review";
-type ContactAction = "importDirect" | "createRebuild" | "ignore" | "openChatwootReview";
+type ContactAction = "importDirect" | "createRebuild" | "ignore" | "openChatwootReview" | "resolveLid";
 
 const TAB_VALUES: HistoryTabValue[] = ["connection", "inbox-mapping", "history-import", "sync-jobs", "conflict-review"];
 
@@ -695,6 +695,25 @@ function Chatwoot() {
       return;
     }
 
+    if (action === "resolveLid") {
+      try {
+        toast.info("Resolvendo LID...");
+        const response = await contactActionChatwootHistory({
+          instanceName: instance!.name,
+          token: instance!.token,
+          data: { jobId: contact.jobId, remoteJid: contact.remoteJid, action: "resolveLid" },
+        });
+        if (!isOpenReviewResponse(response)) {
+          setSelectedJobId(response.id);
+          await Promise.all([refetchSelectedJob(), refetchHistoryJobs()]);
+        }
+        toast.success("LID resolvido.");
+      } catch (error) {
+        showRequestError(error, "Nao foi possivel resolver o LID.");
+      }
+      return;
+    }
+
     await executeContactAction(contact, action, action === "createRebuild" ? getSelectedCanonicalConversationId(contact) : undefined);
   };
 
@@ -887,6 +906,12 @@ function Chatwoot() {
                     <Button size="sm" variant="ghost" onClick={() => handleContactAction(contact, "ignore")}>
                       Ignorar
                     </Button>
+                    {contact.hasLidAlias && !contact.phoneJid && (
+                      <Button size="sm" variant="outline" onClick={() => handleContactAction(contact, "resolveLid")}>
+                        <Search className="mr-1 h-3 w-3" />
+                        Resolver LID
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => handleContactAction(contact, "openChatwootReview")}>
                       Chatwoot
                     </Button>
