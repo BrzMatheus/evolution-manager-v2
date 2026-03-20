@@ -330,7 +330,7 @@ function Chatwoot() {
 
     return true;
   });
-  const visibleContacts = (selectedJob?.Contacts || []).filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
+  const visibleContacts = (selectedJob?.Contacts || []).filter((contact) => contact.classification !== "ignored" && (!focusedRemoteJid || contact.remoteJid === focusedRemoteJid));
   const visibleConflicts = conflicts.filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
   const filteredSelectableRemoteJids = filteredSelectableChats.map((chat) => chat.remoteJid);
   const visibleContactRemoteJids = visibleContacts.map((contact) => contact.remoteJid);
@@ -557,8 +557,8 @@ function Chatwoot() {
       return;
     }
 
+    const toastId = toast.loading("Executando dry run...");
     try {
-      toast.info("Executando dry run...");
       const job = await analyzeChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -570,8 +570,9 @@ function Chatwoot() {
 
       setSelectedJobId(job.id);
       setSelectedPreviewRemoteJids(focusedRemoteJid ? [focusedRemoteJid] : []);
-      toast.success("Dry run concluido.");
+      toast.update(toastId, { render: "Dry run concluido.", type: "success", isLoading: false, autoClose: 3000 });
     } catch (error) {
+      toast.update(toastId, { render: "Erro no dry run.", type: "error", isLoading: false, autoClose: 5000 });
       showRequestError(error, "Nao foi possivel executar o dry run.");
     }
   };
@@ -599,8 +600,8 @@ function Chatwoot() {
             .filter((value): value is { remoteJid: string; canonicalConversationId: number } => Boolean(value))
         : undefined;
 
+    const toastId = toast.loading(mode === "rebuild" ? "Executando rebuild..." : "Executando importação...");
     try {
-      toast.info(mode === "rebuild" ? "Executando rebuild..." : "Executando importação...");
       const job = await executeChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -615,8 +616,9 @@ function Chatwoot() {
 
       setSelectedJobId(job.id);
       setActiveTab("sync-jobs");
-      toast.success(mode === "rebuild" ? "Rebuild executado." : "Importacao executada.");
+      toast.update(toastId, { render: mode === "rebuild" ? "Rebuild executado." : "Importacao executada.", type: "success", isLoading: false, autoClose: 3000 });
     } catch (error) {
+      toast.update(toastId, { render: "Erro ao executar o job.", type: "error", isLoading: false, autoClose: 5000 });
       showRequestError(error, "Nao foi possivel executar o job.");
     }
   };
@@ -660,8 +662,8 @@ function Chatwoot() {
   ) => {
     if (!instance) return;
 
+    const toastId = toast.loading("Executando ação...");
     try {
-      toast.info("Executando ação...");
       const response = await contactActionChatwootHistory({
         instanceName: instance.name,
         token: instance.token,
@@ -674,15 +676,17 @@ function Chatwoot() {
       });
 
       if (isOpenReviewResponse(response)) {
+        toast.update(toastId, { render: "Abrindo Chatwoot...", type: "success", isLoading: false, autoClose: 2000 });
         openExternal(response.chatwootReviewUrl || response.chatwootFallbackUrl || response.url || inboxStatus?.inboxUrl || chatwoot?.url);
         return;
       }
 
       setSelectedJobId(response.id);
       await Promise.all([refetchSelectedJob(), refetchHistoryJobs()]);
-      toast.success(action === "ignore" ? "Contato ignorado." : action === "createRebuild" ? "Rebuild iniciado." : "Importação executada.");
+      toast.update(toastId, { render: action === "ignore" ? "Contato ignorado." : action === "createRebuild" ? "Rebuild iniciado." : "Importação executada.", type: "success", isLoading: false, autoClose: 3000 });
       return true;
     } catch (error) {
+      toast.update(toastId, { render: "Erro ao executar a ação.", type: "error", isLoading: false, autoClose: 5000 });
       showRequestError(error, "Nao foi possivel executar a acao.");
       return false;
     }
@@ -696,8 +700,8 @@ function Chatwoot() {
     }
 
     if (action === "resolveLid") {
+      const toastId = toast.loading("Resolvendo LID...");
       try {
-        toast.info("Resolvendo LID...");
         const response = await contactActionChatwootHistory({
           instanceName: instance!.name,
           token: instance!.token,
@@ -707,8 +711,9 @@ function Chatwoot() {
           setSelectedJobId(response.id);
           await Promise.all([refetchSelectedJob(), refetchHistoryJobs()]);
         }
-        toast.success("LID resolvido.");
+        toast.update(toastId, { render: "LID resolvido.", type: "success", isLoading: false, autoClose: 3000 });
       } catch (error) {
+        toast.update(toastId, { render: "Nao foi possivel resolver o LID.", type: "error", isLoading: false, autoClose: 5000 });
         showRequestError(error, "Nao foi possivel resolver o LID.");
       }
       return;
