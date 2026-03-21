@@ -3,7 +3,7 @@ import "./style.css";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isAxiosError } from "axios";
-import { AlertTriangle, ArrowUpRight, CheckCircle2, Download, History, RefreshCw, Search, ShieldAlert, Upload, Wand2, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Download, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -34,19 +34,38 @@ import {
 } from "@/lib/queries/chatwoot/fetchChatwoot";
 import { cancelBulkHistory, exportChatwootHistoryCsv, fetchBulkHistory, fetchBulkHistoryStatus, useManageChatwoot } from "@/lib/queries/chatwoot/manageChatwoot";
 import {
-  ChatwootHistoryCandidateConversation,
   ChatwootHistoryContactActionResponse,
-  ChatwootHistoryExecutionStatus,
   ChatwootHistoryJob,
   ChatwootHistoryJobContact,
-  ChatwootHistoryJobStatus,
   ChatwootHistoryScopeType,
-  ChatwootReviewPayload,
-  ChatwootUnsafeReason,
 } from "@/lib/queries/chatwoot/types";
 import { cn } from "@/lib/utils";
 
-import { Chat as ChatType } from "@/types/evolution.types";
+import {
+  buildConflictSummary,
+  classificationBadgeVariant,
+  classificationLabels,
+  executionLabels,
+  formatDateTime,
+  getCandidateConversationByInternalId,
+  getCandidateConversations,
+  getConsolidation,
+  getContactSelectionKey,
+  getConversationStatusLabel,
+  getConversationStatusVariant,
+  getDefaultCanonicalConversationId,
+  getDisplayName,
+  getRelatedInboxIds,
+  getReviewPayload,
+  getUnsafeReasonLabel,
+  jobModeLabels,
+  jobStatusLabels,
+  statusBadgeVariant,
+  getConversationUrl,
+  suggestedActionLabels,
+} from "./history-import/helpers";
+import { StepReview } from "./history-import/StepReview";
+import { StepScope } from "./history-import/StepScope";
 
 const stringOrUndefined = z
   .string()
@@ -79,56 +98,6 @@ type ContactAction = "importDirect" | "createRebuild" | "ignore" | "openChatwoot
 
 const TAB_VALUES: HistoryTabValue[] = ["connection", "inbox-mapping", "history-import", "sync-jobs", "conflict-review"];
 
-const classificationLabels = {
-  eligible: "Elegivel",
-  needs_review: "Conflito",
-  lid_alias: "Alias @lid",
-  requires_rebuild: "Precisa rebuild",
-  ignored: "Ignorado",
-} as const;
-
-const suggestedActionLabels = {
-  import_direct: "Importar direto",
-  create_rebuild: "Rebuild + merge",
-  open_chatwoot: "Abrir no Chatwoot",
-  ignore: "Ignorar",
-} as const;
-
-const executionLabels: Record<ChatwootHistoryExecutionStatus, string> = {
-  pending: "Pendente",
-  completed: "Concluido",
-  failed: "Falhou",
-  skipped: "Ignorado",
-};
-
-const jobStatusLabels: Record<ChatwootHistoryJobStatus, string> = {
-  pending: "Pendente",
-  analyzing: "Analisando",
-  awaiting_execution: "Aguardando execucao",
-  running: "Executando",
-  completed: "Concluido",
-  failed: "Falhou",
-  partial: "Parcial",
-} as const;
-
-const jobModeLabels = {
-  dryRun: "Dry run",
-  importDirect: "Importacao direta",
-  rebuild: "Rebuild + merge",
-} as const;
-
-const scopeLabels: Record<ChatwootHistoryScopeType, string> = {
-  single: "Contato unico",
-  selected: "Selecionados",
-  eligibleAll: "Todos elegiveis",
-};
-
-const scopeDescriptions: Record<ChatwootHistoryScopeType, string> = {
-  single: "Analisa um contato especifico.",
-  selected: "Analisa uma lista escolhida manualmente.",
-  eligibleAll: "Analisa todos os contatos conhecidos da instancia.",
-};
-
 const getRequestedTab = (value: string | null): HistoryTabValue | null => {
   if (!value) {
     return null;
@@ -137,83 +106,8 @@ const getRequestedTab = (value: string | null): HistoryTabValue | null => {
   return TAB_VALUES.includes(value as HistoryTabValue) ? (value as HistoryTabValue) : null;
 };
 
-const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString("pt-BR") : "--");
-const getDisplayName = (item: Pick<ChatType, "pushName" | "remoteJid"> | Pick<ChatwootHistoryJobContact, "pushName" | "remoteJid">) => item.pushName || item.remoteJid.split("@")[0];
-const getReviewPayload = (contact: ChatwootHistoryJobContact): ChatwootReviewPayload | null => contact.report?.review || null;
-const getConsolidation = (contact: ChatwootHistoryJobContact) => contact.report?.consolidation || null;
-const getConversationUrl = (contact: ChatwootHistoryJobContact) =>
-  getReviewPayload(contact)?.chatwootReviewUrl || contact.report?.rebuiltConversationUrl || contact.report?.chatwootConversationUrl || null;
 const isOpenReviewResponse = (response: ChatwootHistoryContactActionResponse): response is Extract<ChatwootHistoryContactActionResponse, { action: "openChatwootReview" }> =>
   "action" in response && response.action === "openChatwootReview";
-const getUnsafeReasonLabel = (reason: ChatwootUnsafeReason) =>
-  ({
-    existing_conversation_overlap: "Overlap com conversa existente",
-    lid_alias_detected: "Alias @lid detectado",
-    multiple_candidate_conversations: "Multiplas conversas candidatas",
-    source_id_collision_risk: "Risco de colisao de source_id",
-    chatwoot_history_already_present: "Historico ja presente no Chatwoot",
-    identity_conflict: "Identidade canonica ambigua",
-  })[reason];
-
-const getConversationSelection = (contact: ChatwootHistoryJobContact) => contact.report?.conversationSelection || null;
-
-const getCandidateConversations = (contact: ChatwootHistoryJobContact): ChatwootHistoryCandidateConversation[] =>
-  getConversationSelection(contact)?.candidateConversations || [];
-
-const getRelatedInboxIds = (contact: ChatwootHistoryJobContact): number[] =>
-  getConversationSelection(contact)?.relatedInboxIds || contact.report?.evidence?.relatedInboxIds || [];
-
-const getDefaultCanonicalConversationId = (contact: ChatwootHistoryJobContact) =>
-  getConversationSelection(contact)?.selectedConversationInternalId || contact.selectedConversationId || null;
-
-const getCandidateConversationByInternalId = (contact: ChatwootHistoryJobContact, internalId?: number | null) =>
-  getCandidateConversations(contact).find((candidate) => candidate.internalId === internalId) || null;
-
-const getConversationStatusLabel = (status: ChatwootHistoryCandidateConversation["status"]) =>
-  ({
-    open: "Aberta",
-    resolved: "Resolvida",
-    pending: "Pendente",
-    snoozed: "Adiada",
-    unknown: "Desconhecida",
-  })[status];
-
-const getConversationStatusVariant = (status: ChatwootHistoryCandidateConversation["status"]) => {
-  if (status === "open") return "secondary";
-  if (status === "resolved") return "outline";
-  if (status === "pending" || status === "snoozed") return "warning";
-  return "outline";
-};
-
-const buildConflictSummary = (contact: ChatwootHistoryJobContact) => {
-  const fragments: string[] = [];
-  const candidateConversations = getCandidateConversations(contact);
-  const relatedInboxIds = getRelatedInboxIds(contact);
-
-  if (contact.overlapCount > 0) {
-    fragments.push(`${contact.overlapCount} mensagem(ns) ja existem no Chatwoot`);
-  }
-
-  if (candidateConversations.length > 1) {
-    fragments.push(`${candidateConversations.length} conversas candidatas no inbox alvo`);
-  } else if (candidateConversations.length === 1) {
-    fragments.push(`1 conversa candidata no inbox alvo`);
-  }
-
-  if (relatedInboxIds.length > 0) {
-    fragments.push(`historico visto nas inboxes ${relatedInboxIds.join(", ")}`);
-  }
-
-  if (contact.report?.evidence?.sourceIdCollisionRisk) {
-    fragments.push("ha risco de colisao de source_id");
-  }
-
-  if (contact.chatwootMessageCount > 0) {
-    fragments.push("o merge deve preservar a midia ja salva no Chatwoot");
-  }
-
-  return fragments.join(" • ");
-};
 
 const getJobFailureReasons = (job?: ChatwootHistoryJob | null) =>
   (job?.Contacts || [])
@@ -236,21 +130,6 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   URL.revokeObjectURL(url);
 };
 
-const statusBadgeVariant = (status: string) => {
-  if (status === "completed") return "secondary";
-  if (status === "failed") return "destructive";
-  if (status === "running" || status === "analyzing" || status === "partial") return "warning";
-  if (status === "awaiting_execution") return "outline";
-  return "outline";
-};
-
-const classificationBadgeVariant = (classification: ChatwootHistoryJobContact["classification"]) => {
-  if (classification === "eligible") return "secondary";
-  if (classification === "ignored") return "outline";
-  if (classification === "needs_review" || classification === "requires_rebuild") return "warning";
-  return "destructive";
-};
-
 function Chatwoot() {
   const { t } = useTranslation();
   const { instance } = useInstance();
@@ -270,6 +149,7 @@ function Chatwoot() {
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobModeFilter, setJobModeFilter] = useState("all");
   const [classificationFilter, setClassificationFilter] = useState("all");
+  const [scopeCollapsed, setScopeCollapsed] = useState(false);
   const [bulkHistoryRunning, setBulkHistoryRunning] = useState(false);
   const [bulkHistoryInfo, setBulkHistoryInfo] = useState<{
     processedChats: number;
@@ -353,7 +233,6 @@ function Chatwoot() {
     scopeType !== "single" && filteredSelectableRemoteJids.length > 0 && filteredSelectableRemoteJids.every((remoteJid) => selectedRemoteJids.includes(remoteJid));
   const areAllPreviewContactsSelected =
     visibleContactRemoteJids.length > 0 && visibleContactRemoteJids.every((remoteJid) => selectedPreviewRemoteJids.includes(remoteJid));
-  const getContactSelectionKey = (contact: Pick<ChatwootHistoryJobContact, "jobId" | "remoteJid">) => `${contact.jobId}:${contact.remoteJid}`;
   const getSelectedCanonicalConversationId = (contact: ChatwootHistoryJobContact) =>
     selectedCanonicalConversationIds[getContactSelectionKey(contact)] ?? getDefaultCanonicalConversationId(contact);
 
@@ -1223,219 +1102,61 @@ function Chatwoot() {
         </TabsContent>
 
         <TabsContent value="history-import">
-          <div className="grid gap-6 xl:grid-cols-[1fr_1.5fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle>Escopo e execucao</CardTitle>
-                <CardDescription>Selecione o escopo, gere a previa e dispare importacao direta ou rebuild.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2 md:grid-cols-3">
-                  {(["single", "selected", "eligibleAll"] as ChatwootHistoryScopeType[]).map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => {
-                        setScopeType(value);
-                        if (value === "eligibleAll") {
-                          setSelectedRemoteJids([]);
-                        }
-                      }}
-                      className={cn("rounded-lg border px-4 py-3 text-left transition-colors", scopeType === value ? "border-primary bg-primary/5" : "hover:bg-muted/50")}>
-                      <div className="font-medium">{scopeLabels[value]}</div>
-                      <div className="mt-1 text-sm text-muted-foreground">{scopeDescriptions[value]}</div>
-                    </button>
-                  ))}
-                </div>
+          <div className="space-y-4">
+            <StepScope
+              isCollapsed={scopeCollapsed}
+              onToggleCollapsed={setScopeCollapsed}
+              scopeType={scopeType}
+              onScopeTypeChange={(value) => {
+                setScopeType(value);
+                if (value === "eligibleAll") {
+                  setSelectedRemoteJids([]);
+                }
+              }}
+              selectionSearch={selectionSearch}
+              onSelectionSearchChange={setSelectionSearch}
+              filteredChats={filteredSelectableChats}
+              selectedRemoteJids={selectedRemoteJids}
+              onToggleScopeSelection={toggleScopeSelection}
+              onSelectAllScope={handleSelectAllScopeContacts}
+              onClearScopeSelection={() => setSelectedRemoteJids([])}
+              areAllScopeContactsSelected={areAllScopeContactsSelected}
+              bulkHistoryInfo={bulkHistoryInfo}
+              bulkHistoryRunning={bulkHistoryRunning}
+              onFetchBulkHistory={handleFetchBulkHistory}
+              onCancelBulkHistory={handleCancelBulkHistory}
+              onAnalyze={() => {
+                handleAnalyze().then(() => setScopeCollapsed(true));
+              }}
+            />
 
-                {scopeType !== "eligibleAll" ? (
-                  <>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-                      <Input value={selectionSearch} onChange={(event) => setSelectionSearch(event.target.value)} className="pl-9" placeholder="Filtrar contatos por nome ou JID" />
-                    </div>
-                    {scopeType !== "single" ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={handleSelectAllScopeContacts} disabled={filteredSelectableRemoteJids.length === 0}>
-                          {areAllScopeContactsSelected ? "Desmarcar todos" : "Selecionar todos"}
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedRemoteJids([])} disabled={selectedRemoteJids.length === 0}>
-                          Limpar selecao
-                        </Button>
-                      </div>
-                    ) : null}
-                    <ScrollArea className="h-72 rounded-lg border">
-                      <div className="space-y-1 p-2">
-                        {filteredSelectableChats.map((chat) => {
-                          const isSelected = selectedRemoteJids.includes(chat.remoteJid);
-
-                          return (
-                            <button
-                              key={chat.id}
-                              type="button"
-                              onClick={() => toggleScopeSelection(chat.remoteJid)}
-                              className={cn("flex w-full items-start justify-between rounded-md px-3 py-3 text-left transition-colors", isSelected ? "bg-primary/5" : "hover:bg-muted/50")}>
-                              <div>
-                                <div className="font-medium">{getDisplayName(chat)}</div>
-                                <div className="text-xs text-muted-foreground">{chat.remoteJid}</div>
-                              </div>
-                              <input checked={isSelected} readOnly className="mt-1 h-4 w-4 accent-primary" type={scopeType === "single" ? "radio" : "checkbox"} />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </>
-                ) : null}
-
-                {bulkHistoryInfo && (bulkHistoryInfo.processedChats > 0 || bulkHistoryInfo.autoResume) ? (
-                  <div className="rounded-lg border bg-muted/50 p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Busca de historico</span>
-                      {bulkHistoryInfo.autoResume && bulkHistoryInfo.nextBatchAt ? (
-                        <Badge variant="secondary">Proximo batch: {new Date(bulkHistoryInfo.nextBatchAt).toLocaleString("pt-BR")}</Badge>
-                      ) : null}
-                    </div>
-                    <div className="mt-1 text-muted-foreground">
-                      {bulkHistoryInfo.processedChats}/{bulkHistoryInfo.totalChats} chats processados
-                      {bulkHistoryInfo.remainingChats > 0 ? ` • ${bulkHistoryInfo.remainingChats} restantes` : " • Concluido"}
-                      {bulkHistoryInfo.totalNewMessages ? ` • +${bulkHistoryInfo.totalNewMessages} novas msgs` : ""}
-                    </div>
-                    {bulkHistoryInfo.lidMappingsFound && bulkHistoryInfo.lidMappingsFound.length > 0 ? (
-                      <div className="mt-2 rounded border bg-green-50 dark:bg-green-950 p-2">
-                        <span className="font-medium text-green-700 dark:text-green-400">
-                          {bulkHistoryInfo.lidMappingsFound.length} mapeamento(s) LID → Phone encontrado(s):
-                        </span>
-                        <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                          {bulkHistoryInfo.lidMappingsFound.map((m, i) => (
-                            <li key={i}>{m.lid} → {m.phone}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {bulkHistoryInfo.newMessagesPerChat && Object.keys(bulkHistoryInfo.newMessagesPerChat).length > 0 ? (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                          Detalhes por chat ({Object.keys(bulkHistoryInfo.newMessagesPerChat).length} chats com novas msgs)
-                        </summary>
-                        <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5 text-xs text-muted-foreground">
-                          {Object.entries(bulkHistoryInfo.newMessagesPerChat)
-                            .sort(([, a], [, b]) => b - a)
-                            .map(([jid, count]) => (
-                              <li key={jid}>+{count} msgs — {jid}</li>
-                            ))}
-                        </ul>
-                      </details>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={() => handleFetchBulkHistory(false)} disabled={bulkHistoryRunning}>
-                    <History className={cn("mr-2 h-4 w-4", bulkHistoryRunning && "animate-spin")} />
-                    {bulkHistoryRunning ? "Buscando..." : "Buscar batch (500)"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => handleFetchBulkHistory(true)} disabled={bulkHistoryRunning}>
-                    <History className={cn("mr-2 h-4 w-4", bulkHistoryRunning && "animate-spin")} />
-                    {bulkHistoryRunning ? "Buscando..." : "Buscar automatico (diario)"}
-                  </Button>
-                  {(bulkHistoryRunning || bulkHistoryInfo?.autoResume) ? (
-                    <Button type="button" variant="destructive" size="icon" onClick={handleCancelBulkHistory} title="Cancelar busca">
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  <Button type="button" onClick={handleAnalyze}>
-                    <ShieldAlert className="mr-2 h-4 w-4" />
-                    Dry run
-                  </Button>
-                  <Button type="button" variant="outline" disabled={!selectedJobId} onClick={() => handleExecute("importDirect", "allSafe")}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Importar elegiveis
-                  </Button>
-                  <Button type="button" variant="outline" disabled={!selectedJobId || selectedPreviewRemoteJids.length === 0} onClick={() => handleExecute("importDirect", "selected")}>
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Importar selecionado
-                  </Button>
-                  <Button type="button" variant="secondary" disabled={!selectedJobId || selectedPreviewRemoteJids.length === 0} onClick={() => handleExecute("rebuild", "selected")}>
-                    <Wand2 className="mr-2 h-4 w-4" />
-                    Rebuild selecionado
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Previa do job</CardTitle>
-                <CardDescription>Use esta tabela para selecionar contatos e disparar a acao correta.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selectedJob ? (
-                  <>
-                    <div className="grid gap-4 md:grid-cols-5">
-                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "all" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("all")}>
-                        <div className="text-sm text-muted-foreground">Contatos</div>
-                        <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.totalContacts || 0}</div>
-                      </button>
-                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "eligible" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("eligible")}>
-                        <div className="text-sm text-muted-foreground">Elegiveis</div>
-                        <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.eligible || 0}</div>
-                      </button>
-                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent bg-amber-50 dark:bg-amber-950/20", classificationFilter === "requires_rebuild" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("requires_rebuild")}>
-                        <div className="text-sm text-muted-foreground">Precisa rebuild</div>
-                        <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.requiresRebuild || 0}</div>
-                      </button>
-                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "needs_review" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("needs_review")}>
-                        <div className="text-sm text-muted-foreground">Conflitos</div>
-                        <div className="mt-2 text-2xl font-semibold">{(selectedJob.summary?.needsReview || 0) + (selectedJob.summary?.lidAlias || 0)}</div>
-                      </button>
-                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "all" && "")} onClick={() => setClassificationFilter("all")}>
-                        <div className="text-sm text-muted-foreground">Safe direct</div>
-                        <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.safeDirectImport || 0}</div>
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Select value={classificationFilter} onValueChange={setClassificationFilter}>
-                        <SelectTrigger className="w-48">
-                          <SelectValue placeholder="Filtrar classificacao" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todas classificacoes</SelectItem>
-                          <SelectItem value="eligible">Elegiveis</SelectItem>
-                          <SelectItem value="needs_review">Conflito</SelectItem>
-                          <SelectItem value="requires_rebuild">Precisa rebuild</SelectItem>
-                          <SelectItem value="lid_alias">Alias @lid</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button type="button" variant="outline" size="sm" onClick={handleSelectAllPreviewContacts} disabled={visibleContactRemoteJids.length === 0}>
-                        {areAllPreviewContactsSelected ? "Desmarcar todas" : "Selecionar todas"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          const rebuildJids = (selectedJob?.Contacts || [])
-                            .filter((c) => c.classification === "requires_rebuild")
-                            .map((c) => c.remoteJid);
-                          setSelectedPreviewRemoteJids(rebuildJids);
-                          setClassificationFilter("requires_rebuild");
-                        }}
-                        disabled={!(selectedJob?.summary?.requiresRebuild)}
-                      >
-                        <Wand2 className="mr-2 h-4 w-4" />
-                        Selecionar requires_rebuild
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedPreviewRemoteJids([])} disabled={selectedPreviewRemoteJids.length === 0}>
-                        Limpar selecao
-                      </Button>
-                    </div>
-                    {renderContactsTable(visibleContacts, { selectable: true })}
-                  </>
-                ) : (
-                  <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">Execute um dry run para gerar a previa.</div>
-                )}
-              </CardContent>
-            </Card>
+            <StepReview
+              selectedJob={selectedJob}
+              visibleContacts={visibleContacts}
+              classificationFilter={classificationFilter}
+              onClassificationFilterChange={setClassificationFilter}
+              selectedPreviewRemoteJids={selectedPreviewRemoteJids}
+              onTogglePreviewSelection={togglePreviewSelection}
+              onSelectAllPreview={handleSelectAllPreviewContacts}
+              onClearPreviewSelection={() => setSelectedPreviewRemoteJids([])}
+              areAllPreviewContactsSelected={areAllPreviewContactsSelected}
+              selectedCanonicalConversationIds={selectedCanonicalConversationIds}
+              onSelectCanonical={setCanonicalConversation}
+              onContactAction={handleContactAction}
+              onOpenMergeDialog={openMergeDialog}
+              onOpenExternal={openExternal}
+              onImportEligible={() => handleExecute("importDirect", "allSafe")}
+              onImportSelected={() => handleExecute("importDirect", "selected")}
+              onRebuildSelected={() => handleExecute("rebuild", "selected")}
+              onSelectRequiresRebuild={() => {
+                const rebuildJids = (selectedJob?.Contacts || [])
+                  .filter((c) => c.classification === "requires_rebuild")
+                  .map((c) => c.remoteJid);
+                setSelectedPreviewRemoteJids(rebuildJids);
+                setClassificationFilter("requires_rebuild");
+              }}
+              onDownloadCsv={handleDownloadCsv}
+            />
           </div>
         </TabsContent>
 
