@@ -277,6 +277,9 @@ function Chatwoot() {
     remainingChats: number;
     autoResume: boolean;
     nextBatchAt: string | null;
+    totalNewMessages?: number;
+    newMessagesPerChat?: Record<string, number>;
+    lidMappingsFound?: Array<{ lid: string; phone: string }>;
   } | null>(null);
 
   const { createChatwoot, analyzeChatwootHistory, executeChatwootHistory, reprocessChatwootHistory, contactActionChatwootHistory } = useManageChatwoot();
@@ -573,19 +576,25 @@ function Chatwoot() {
             remainingChats: status.remainingChats,
             autoResume: status.autoResume,
             nextBatchAt: status.nextBatchAt,
+            totalNewMessages: status.totalNewMessages,
+            newMessagesPerChat: status.newMessagesPerChat,
+            lidMappingsFound: status.lidMappingsFound,
           });
+          const lidInfo = status.lidMappingsFound?.length > 0 ? ` | ${status.lidMappingsFound.length} LID→phone` : "";
           toast.update(toastId, {
-            render: `Batch: ${status.completedBatch}/${status.batchSize} | Total: ${status.processedChats}/${status.totalChats} chats (${status.errors} erros)`,
+            render: `Batch: ${status.completedBatch}/${status.batchSize} | Total: ${status.processedChats}/${status.totalChats} chats | +${status.totalNewMessages || 0} msgs${lidInfo} (${status.errors} erros)`,
             isLoading: true,
           });
           if (!status.running) {
             clearInterval(pollInterval);
             setBulkHistoryRunning(false);
             const hasNext = status.autoResume && status.remainingChats > 0;
+            const newMsgsText = status.totalNewMessages > 0 ? `, +${status.totalNewMessages} novas msgs` : "";
+            const lidText = status.lidMappingsFound?.length > 0 ? `, ${status.lidMappingsFound.length} mapeamentos LID→phone` : "";
             toast.update(toastId, {
               render: hasNext
-                ? `Batch concluido: ${status.processedChats}/${status.totalChats} chats. Proximo batch: ${status.nextBatchAt ? new Date(status.nextBatchAt).toLocaleString("pt-BR") : "em ~24h"}`
-                : `Historico concluido: ${status.processedChats} chats processados, ${status.errors} erros. Execute um Dry Run para atualizar.`,
+                ? `Batch concluido: ${status.processedChats}/${status.totalChats} chats${newMsgsText}${lidText}. Proximo batch: ${status.nextBatchAt ? new Date(status.nextBatchAt).toLocaleString("pt-BR") : "em ~24h"}`
+                : `Historico concluido: ${status.processedChats} chats${newMsgsText}${lidText}, ${status.errors} erros. Execute um Dry Run para atualizar.`,
               type: status.errors > 0 ? "warning" : "success",
               isLoading: false,
               autoClose: hasNext ? 10000 : 5000,
@@ -628,6 +637,9 @@ function Chatwoot() {
             remainingChats: status.remainingChats,
             autoResume: status.autoResume,
             nextBatchAt: status.nextBatchAt,
+            totalNewMessages: status.totalNewMessages,
+            newMessagesPerChat: status.newMessagesPerChat,
+            lidMappingsFound: status.lidMappingsFound,
           });
         }
       })
@@ -1287,7 +1299,34 @@ function Chatwoot() {
                     <div className="mt-1 text-muted-foreground">
                       {bulkHistoryInfo.processedChats}/{bulkHistoryInfo.totalChats} chats processados
                       {bulkHistoryInfo.remainingChats > 0 ? ` • ${bulkHistoryInfo.remainingChats} restantes` : " • Concluido"}
+                      {bulkHistoryInfo.totalNewMessages ? ` • +${bulkHistoryInfo.totalNewMessages} novas msgs` : ""}
                     </div>
+                    {bulkHistoryInfo.lidMappingsFound && bulkHistoryInfo.lidMappingsFound.length > 0 ? (
+                      <div className="mt-2 rounded border bg-green-50 dark:bg-green-950 p-2">
+                        <span className="font-medium text-green-700 dark:text-green-400">
+                          {bulkHistoryInfo.lidMappingsFound.length} mapeamento(s) LID → Phone encontrado(s):
+                        </span>
+                        <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                          {bulkHistoryInfo.lidMappingsFound.map((m, i) => (
+                            <li key={i}>{m.lid} → {m.phone}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {bulkHistoryInfo.newMessagesPerChat && Object.keys(bulkHistoryInfo.newMessagesPerChat).length > 0 ? (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                          Detalhes por chat ({Object.keys(bulkHistoryInfo.newMessagesPerChat).length} chats com novas msgs)
+                        </summary>
+                        <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5 text-xs text-muted-foreground">
+                          {Object.entries(bulkHistoryInfo.newMessagesPerChat)
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([jid, count]) => (
+                              <li key={jid}>+{count} msgs — {jid}</li>
+                            ))}
+                        </ul>
+                      </details>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="flex flex-wrap gap-2">

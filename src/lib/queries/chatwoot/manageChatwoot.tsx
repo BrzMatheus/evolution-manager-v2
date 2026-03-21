@@ -117,6 +117,9 @@ export const fetchBulkHistoryStatus = async ({ instanceName, token }: SimplePara
     autoResume: boolean;
     nextBatchAt: string | null;
     skippedAlreadyFetched: number;
+    totalNewMessages: number;
+    newMessagesPerChat: Record<string, number>;
+    lidMappingsFound: Array<{ lid: string; phone: string }>;
   };
 };
 
