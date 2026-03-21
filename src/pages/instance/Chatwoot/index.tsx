@@ -3,7 +3,7 @@ import "./style.css";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isAxiosError } from "axios";
-import { AlertTriangle, ArrowUpRight, CheckCircle2, Download, RefreshCw, Search, ShieldAlert, Upload, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Download, History, RefreshCw, Search, ShieldAlert, Upload, Wand2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -32,7 +32,7 @@ import {
   useFetchChatwootHistoryJobs,
   useFetchChatwootInboxStatus,
 } from "@/lib/queries/chatwoot/fetchChatwoot";
-import { exportChatwootHistoryCsv, useManageChatwoot } from "@/lib/queries/chatwoot/manageChatwoot";
+import { cancelBulkHistory, exportChatwootHistoryCsv, fetchBulkHistory, fetchBulkHistoryStatus, useManageChatwoot } from "@/lib/queries/chatwoot/manageChatwoot";
 import {
   ChatwootHistoryCandidateConversation,
   ChatwootHistoryContactActionResponse,
@@ -269,6 +269,15 @@ function Chatwoot() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobModeFilter, setJobModeFilter] = useState("all");
+  const [classificationFilter, setClassificationFilter] = useState("all");
+  const [bulkHistoryRunning, setBulkHistoryRunning] = useState(false);
+  const [bulkHistoryInfo, setBulkHistoryInfo] = useState<{
+    processedChats: number;
+    totalChats: number;
+    remainingChats: number;
+    autoResume: boolean;
+    nextBatchAt: string | null;
+  } | null>(null);
 
   const { createChatwoot, analyzeChatwootHistory, executeChatwootHistory, reprocessChatwootHistory, contactActionChatwootHistory } = useManageChatwoot();
   const instanceName = instance?.name || null;
@@ -330,7 +339,7 @@ function Chatwoot() {
 
     return true;
   });
-  const visibleContacts = (selectedJob?.Contacts || []).filter((contact) => contact.classification !== "ignored" && (!focusedRemoteJid || contact.remoteJid === focusedRemoteJid));
+  const visibleContacts = (selectedJob?.Contacts || []).filter((contact) => contact.classification !== "ignored" && (!focusedRemoteJid || contact.remoteJid === focusedRemoteJid) && (classificationFilter === "all" || contact.classification === classificationFilter));
   const visibleConflicts = conflicts.filter((contact) => !focusedRemoteJid || contact.remoteJid === focusedRemoteJid);
   const filteredSelectableRemoteJids = filteredSelectableChats.map((chat) => chat.remoteJid);
   const visibleContactRemoteJids = visibleContacts.map((contact) => contact.remoteJid);
@@ -543,6 +552,87 @@ function Chatwoot() {
       },
     );
   };
+
+  const handleFetchBulkHistory = async (autoResume = false) => {
+    if (!instance) return;
+    setBulkHistoryRunning(true);
+    const toastId = toast.loading(autoResume ? "Iniciando busca automatica de historico..." : "Buscando historico do WhatsApp...");
+    try {
+      await fetchBulkHistory({
+        instanceName: instance.name,
+        token: instance.token,
+        data: { batchSize: 500, autoResume },
+      });
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await fetchBulkHistoryStatus({ instanceName: instance.name, token: instance.token });
+          setBulkHistoryInfo({
+            processedChats: status.processedChats,
+            totalChats: status.totalChats,
+            remainingChats: status.remainingChats,
+            autoResume: status.autoResume,
+            nextBatchAt: status.nextBatchAt,
+          });
+          toast.update(toastId, {
+            render: `Batch: ${status.completedBatch}/${status.batchSize} | Total: ${status.processedChats}/${status.totalChats} chats (${status.errors} erros)`,
+            isLoading: true,
+          });
+          if (!status.running) {
+            clearInterval(pollInterval);
+            setBulkHistoryRunning(false);
+            const hasNext = status.autoResume && status.remainingChats > 0;
+            toast.update(toastId, {
+              render: hasNext
+                ? `Batch concluido: ${status.processedChats}/${status.totalChats} chats. Proximo batch: ${status.nextBatchAt ? new Date(status.nextBatchAt).toLocaleString("pt-BR") : "em ~24h"}`
+                : `Historico concluido: ${status.processedChats} chats processados, ${status.errors} erros. Execute um Dry Run para atualizar.`,
+              type: status.errors > 0 ? "warning" : "success",
+              isLoading: false,
+              autoClose: hasNext ? 10000 : 5000,
+            });
+          }
+        } catch {
+          clearInterval(pollInterval);
+          setBulkHistoryRunning(false);
+          toast.update(toastId, { render: "Erro ao verificar status.", type: "error", isLoading: false, autoClose: 5000 });
+        }
+      }, 5000);
+    } catch {
+      setBulkHistoryRunning(false);
+      toast.update(toastId, { render: "Erro ao iniciar busca de historico.", type: "error", isLoading: false, autoClose: 5000 });
+    }
+  };
+
+  const handleCancelBulkHistory = async () => {
+    if (!instance) return;
+    try {
+      await cancelBulkHistory({ instanceName: instance.name, token: instance.token });
+      setBulkHistoryRunning(false);
+      setBulkHistoryInfo(null);
+      toast.success("Busca de historico cancelada.");
+    } catch {
+      toast.error("Erro ao cancelar busca de historico.");
+    }
+  };
+
+  // Check bulk history status on mount
+  useEffect(() => {
+    if (!instance) return;
+    fetchBulkHistoryStatus({ instanceName: instance.name, token: instance.token })
+      .then((status) => {
+        setBulkHistoryRunning(status.running);
+        if (status.processedChats > 0 || status.autoResume) {
+          setBulkHistoryInfo({
+            processedChats: status.processedChats,
+            totalChats: status.totalChats,
+            remainingChats: status.remainingChats,
+            autoResume: status.autoResume,
+            nextBatchAt: status.nextBatchAt,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [instance]);
 
   const handleAnalyze = async () => {
     if (!instance) return;
@@ -763,7 +853,7 @@ function Chatwoot() {
             const selectedCanonicalConversation = getCandidateConversationByInternalId(contact, selectedCanonicalConversationId);
 
             return (
-              <TableRow key={`${contact.jobId}:${contact.remoteJid}`}>
+              <TableRow key={`${contact.jobId}:${contact.remoteJid}`} className={cn(contact.classification === "requires_rebuild" && "bg-amber-50 dark:bg-amber-950/20", contact.classification === "needs_review" && "bg-orange-50 dark:bg-orange-950/20")}>
                 {options?.selectable ? (
                   <TableCell>
                     <input checked={isSelected} className="h-4 w-4 accent-primary" type="checkbox" onChange={() => togglePreviewSelection(contact.remoteJid)} />
@@ -1186,7 +1276,34 @@ function Chatwoot() {
                   </>
                 ) : null}
 
+                {bulkHistoryInfo && (bulkHistoryInfo.processedChats > 0 || bulkHistoryInfo.autoResume) ? (
+                  <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Busca de historico</span>
+                      {bulkHistoryInfo.autoResume && bulkHistoryInfo.nextBatchAt ? (
+                        <Badge variant="secondary">Proximo batch: {new Date(bulkHistoryInfo.nextBatchAt).toLocaleString("pt-BR")}</Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-muted-foreground">
+                      {bulkHistoryInfo.processedChats}/{bulkHistoryInfo.totalChats} chats processados
+                      {bulkHistoryInfo.remainingChats > 0 ? ` • ${bulkHistoryInfo.remainingChats} restantes` : " • Concluido"}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={() => handleFetchBulkHistory(false)} disabled={bulkHistoryRunning}>
+                    <History className={cn("mr-2 h-4 w-4", bulkHistoryRunning && "animate-spin")} />
+                    {bulkHistoryRunning ? "Buscando..." : "Buscar batch (500)"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => handleFetchBulkHistory(true)} disabled={bulkHistoryRunning}>
+                    <History className={cn("mr-2 h-4 w-4", bulkHistoryRunning && "animate-spin")} />
+                    {bulkHistoryRunning ? "Buscando..." : "Buscar automatico (diario)"}
+                  </Button>
+                  {(bulkHistoryRunning || bulkHistoryInfo?.autoResume) ? (
+                    <Button type="button" variant="destructive" size="icon" onClick={handleCancelBulkHistory} title="Cancelar busca">
+                      <XCircle className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   <Button type="button" onClick={handleAnalyze}>
                     <ShieldAlert className="mr-2 h-4 w-4" />
                     Dry run
@@ -1215,27 +1332,59 @@ function Chatwoot() {
               <CardContent className="space-y-4">
                 {selectedJob ? (
                   <>
-                    <div className="grid gap-4 md:grid-cols-4">
-                      <div className="rounded-lg border p-4">
+                    <div className="grid gap-4 md:grid-cols-5">
+                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "all" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("all")}>
                         <div className="text-sm text-muted-foreground">Contatos</div>
                         <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.totalContacts || 0}</div>
-                      </div>
-                      <div className="rounded-lg border p-4">
+                      </button>
+                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "eligible" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("eligible")}>
                         <div className="text-sm text-muted-foreground">Elegiveis</div>
                         <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.eligible || 0}</div>
-                      </div>
-                      <div className="rounded-lg border p-4">
+                      </button>
+                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent bg-amber-50 dark:bg-amber-950/20", classificationFilter === "requires_rebuild" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("requires_rebuild")}>
+                        <div className="text-sm text-muted-foreground">Precisa rebuild</div>
+                        <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.requiresRebuild || 0}</div>
+                      </button>
+                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "needs_review" && "ring-2 ring-primary")} onClick={() => setClassificationFilter("needs_review")}>
                         <div className="text-sm text-muted-foreground">Conflitos</div>
-                        <div className="mt-2 text-2xl font-semibold">{(selectedJob.summary?.needsReview || 0) + (selectedJob.summary?.lidAlias || 0) + (selectedJob.summary?.requiresRebuild || 0)}</div>
-                      </div>
-                      <div className="rounded-lg border p-4">
+                        <div className="mt-2 text-2xl font-semibold">{(selectedJob.summary?.needsReview || 0) + (selectedJob.summary?.lidAlias || 0)}</div>
+                      </button>
+                      <button type="button" className={cn("rounded-lg border p-4 text-left transition-colors hover:bg-accent", classificationFilter === "all" && "")} onClick={() => setClassificationFilter("all")}>
                         <div className="text-sm text-muted-foreground">Safe direct</div>
                         <div className="mt-2 text-2xl font-semibold">{selectedJob.summary?.safeDirectImport || 0}</div>
-                      </div>
+                      </button>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select value={classificationFilter} onValueChange={setClassificationFilter}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder="Filtrar classificacao" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas classificacoes</SelectItem>
+                          <SelectItem value="eligible">Elegiveis</SelectItem>
+                          <SelectItem value="needs_review">Conflito</SelectItem>
+                          <SelectItem value="requires_rebuild">Precisa rebuild</SelectItem>
+                          <SelectItem value="lid_alias">Alias @lid</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <Button type="button" variant="outline" size="sm" onClick={handleSelectAllPreviewContacts} disabled={visibleContactRemoteJids.length === 0}>
                         {areAllPreviewContactsSelected ? "Desmarcar todas" : "Selecionar todas"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const rebuildJids = (selectedJob?.Contacts || [])
+                            .filter((c) => c.classification === "requires_rebuild")
+                            .map((c) => c.remoteJid);
+                          setSelectedPreviewRemoteJids(rebuildJids);
+                          setClassificationFilter("requires_rebuild");
+                        }}
+                        disabled={!(selectedJob?.summary?.requiresRebuild)}
+                      >
+                        <Wand2 className="mr-2 h-4 w-4" />
+                        Selecionar requires_rebuild
                       </Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedPreviewRemoteJids([])} disabled={selectedPreviewRemoteJids.length === 0}>
                         Limpar selecao

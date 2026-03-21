@@ -79,6 +79,56 @@ export const exportChatwootHistoryCsv = async ({ instanceName, token, jobId }: E
   return response.data as Blob;
 };
 
+interface SimpleParams {
+  instanceName: string;
+  token: string;
+}
+
+export interface FetchBulkHistoryOptions {
+  batchSize?: number;
+  autoResume?: boolean;
+  resetProgress?: boolean;
+}
+
+export const fetchBulkHistory = async ({ instanceName, token, data }: SimpleParams & { data?: FetchBulkHistoryOptions }) => {
+  const response = await api.post(`/chat/fetchBulkHistory/${instanceName}`, data || {}, {
+    headers: {
+      apikey: token,
+    },
+  });
+  return response.data as { status: string };
+};
+
+export const fetchBulkHistoryStatus = async ({ instanceName, token }: SimpleParams) => {
+  const response = await api.get(`/chat/fetchBulkHistoryStatus/${instanceName}`, {
+    headers: {
+      apikey: token,
+    },
+  });
+  return response.data as {
+    totalChats: number;
+    completedTotal: number;
+    completedBatch: number;
+    batchSize: number;
+    errors: number;
+    running: boolean;
+    processedChats: number;
+    remainingChats: number;
+    autoResume: boolean;
+    nextBatchAt: string | null;
+    skippedAlreadyFetched: number;
+  };
+};
+
+export const cancelBulkHistory = async ({ instanceName, token }: SimpleParams) => {
+  const response = await api.post(`/chat/cancelBulkHistory/${instanceName}`, {}, {
+    headers: {
+      apikey: token,
+    },
+  });
+  return response.data as { status: string };
+};
+
 export function useManageChatwoot() {
   const createChatwootMutation = useManageMutation(createChatwoot, {
     invalidateKeys: [["chatwoot"]],
