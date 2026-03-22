@@ -79,24 +79,11 @@ export function ConversationSelector({
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={() => onSelectCanonical(contact, null)}
-        className={cn(
-          "w-full rounded-md border border-dashed p-2.5 text-left text-sm transition-colors",
-          !selectedCanonicalConversationId ? "border-primary bg-primary/5" : "hover:border-primary/40",
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <div className={cn("h-3 w-3 rounded-full border-2", !selectedCanonicalConversationId ? "border-primary bg-primary" : "border-muted-foreground")} />
-          <span>Criar nova conversa canonica</span>
+      {selectedCanonicalConversationId && (
+        <div className="text-xs text-muted-foreground">
+          A canonica vai preservar a midia e receber so os extras.
         </div>
-      </button>
-      <div className="text-xs text-muted-foreground">
-        {selectedCanonicalConversationId
-          ? "A canonica vai preservar a midia e receber so os extras."
-          : "Sem escolha explicita, o merge pode criar uma nova conversa canonica."}
-      </div>
+      )}
     </div>
   );
 }
