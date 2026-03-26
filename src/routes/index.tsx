@@ -18,6 +18,7 @@ import { Flowise } from "@/pages/instance/Flowise";
 import { N8n } from "@/pages/instance/N8n";
 import { Openai } from "@/pages/instance/Openai";
 import { Proxy } from "@/pages/instance/Proxy";
+import { Queue } from "@/pages/instance/Queue";
 import { Rabbitmq } from "@/pages/instance/Rabbitmq";
 import { Settings } from "@/pages/instance/Settings";
 import { Sqs } from "@/pages/instance/Sqs";
@@ -86,6 +87,16 @@ const router = createBrowserRouter([
       <ProtectedRoute>
         <InstanceLayout>
           <Settings />
+        </InstanceLayout>
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/manager/instance/:instanceId/queue",
+    element: (
+      <ProtectedRoute>
+        <InstanceLayout>
+          <Queue />
         </InstanceLayout>
       </ProtectedRoute>
     ),

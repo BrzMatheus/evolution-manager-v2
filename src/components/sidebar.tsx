@@ -39,6 +39,11 @@ function Sidebar() {
             path: "settings",
           },
           {
+            id: "queue",
+            title: t("sidebar.queue"),
+            path: "queue",
+          },
+          {
             id: "proxy",
             title: t("sidebar.proxy"),
             path: "proxy",

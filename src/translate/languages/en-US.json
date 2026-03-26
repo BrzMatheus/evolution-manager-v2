@@ -69,6 +69,7 @@
     "chat": "Chat",
     "configurations": "Configurations",
     "settings": "Settings",
+    "queue": "Queue",
     "proxy": "Proxy",
     "events": "Events",
     "webhook": "Webhook",
@@ -223,6 +224,119 @@
       },
       "password": {
         "label": "Password"
+      }
+    },
+    "button": {
+      "save": "Save",
+      "saving": "Saving..."
+    }
+  },
+  "queue": {
+    "title": "Queue",
+    "toast": {
+      "success": "Queue settings applied successfully",
+      "error": "An error occurred while applying the queue settings"
+    },
+    "status": {
+      "title": "Queue Status",
+      "description": "Live summary of the outbound queue for this instance",
+      "disabled": "Disabled",
+      "mode": {
+        "normal": "Normal",
+        "congested": "Congested",
+        "critical": "Critical"
+      },
+      "metrics": {
+        "pending": "Pending messages",
+        "sent": "Sent messages",
+        "dropped": "Dropped messages",
+        "promoted": "Promoted messages",
+        "eta": "Estimated drain time",
+        "avgDelay": "Average send delay",
+        "last5m": "Dropped in 5 min",
+        "modeChanges": "Mode changes"
+      }
+    },
+    "sections": {
+      "capacity": "Capacity",
+      "capacityDescription": "Queue limits and maximum backlog accepted by the instance.",
+      "sla": "SLA",
+      "slaDescription": "Maximum delivery windows per priority before the message becomes stale.",
+      "delays": "Delays",
+      "delaysDescription": "Random delay ranges applied by congestion mode and priority.",
+      "optimizations": "Optimizations",
+      "optimizationsDescription": "Deduplication, consolidation and typing simulation controls.",
+      "flowControl": "Flow Control",
+      "flowControlDescription": "Conversation pacing and congestion thresholds."
+    },
+    "priority": {
+      "high": "High priority",
+      "medium": "Medium priority",
+      "low": "Low priority"
+    },
+    "mode": {
+      "normal": "Normal mode",
+      "congested": "Congested mode",
+      "critical": "Critical mode"
+    },
+    "form": {
+      "enabled": {
+        "label": "Enabled",
+        "description": "Enable or disable the outbound queue for this instance"
+      },
+      "maxPendingPerConversation": {
+        "label": "Max pending per conversation"
+      },
+      "maxETAMs": {
+        "label": "Max ETA (ms)"
+      },
+      "delayMin": {
+        "label": "Minimum delay (ms)"
+      },
+      "delayMax": {
+        "label": "Maximum delay (ms)"
+      },
+      "consolidationEnabled": {
+        "label": "Message consolidation",
+        "description": "Merge close text messages from the same conversation into one send"
+      },
+      "consolidationWindowMs": {
+        "label": "Consolidation window (ms)"
+      },
+      "consolidationSeparator": {
+        "label": "Separator"
+      },
+      "consolidationMaxMessages": {
+        "label": "Max messages per merge"
+      },
+      "deduplicationEnabled": {
+        "label": "Deduplication",
+        "description": "Ignore repeated payloads sent within a short window"
+      },
+      "deduplicationWindowMs": {
+        "label": "Deduplication window (ms)"
+      },
+      "typingEnabled": {
+        "label": "Typing simulation",
+        "description": "Emit typing presence before sending queued messages"
+      },
+      "typingMin": {
+        "label": "Typing min duration (ms)"
+      },
+      "typingMax": {
+        "label": "Typing max duration (ms)"
+      },
+      "minIntervalMs": {
+        "label": "Min interval per conversation (ms)"
+      },
+      "lockAfterSendMs": {
+        "label": "Lock after send (ms)"
+      },
+      "warnThresholdMs": {
+        "label": "Warn threshold (ms)"
+      },
+      "criticalThresholdMs": {
+        "label": "Critical threshold (ms)"
       }
     },
     "button": {

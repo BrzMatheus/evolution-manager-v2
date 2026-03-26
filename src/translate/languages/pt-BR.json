@@ -49,6 +49,7 @@
     "dashboard": "Visão Geral",
     "configurations": "Configurações",
     "settings": "Comportamento",
+    "queue": "Fila",
     "proxy": "Proxy",
     "events": "Eventos",
     "webhook": "Webhook",
@@ -203,6 +204,119 @@
       },
       "password": {
         "label": "Senha"
+      }
+    },
+    "button": {
+      "save": "Salvar",
+      "saving": "Salvando..."
+    }
+  },
+  "queue": {
+    "title": "Fila",
+    "toast": {
+      "success": "Configuração da fila aplicada com sucesso",
+      "error": "Ocorreu um erro ao aplicar a configuração da fila"
+    },
+    "status": {
+      "title": "Status da Fila",
+      "description": "Resumo em tempo real da fila de saída desta instância",
+      "disabled": "Desativada",
+      "mode": {
+        "normal": "Normal",
+        "congested": "Congestionada",
+        "critical": "Crítica"
+      },
+      "metrics": {
+        "pending": "Mensagens pendentes",
+        "sent": "Mensagens enviadas",
+        "dropped": "Mensagens descartadas",
+        "promoted": "Mensagens promovidas",
+        "eta": "Tempo estimado para zerar",
+        "avgDelay": "Atraso médio de envio",
+        "last5m": "Descartadas em 5 min",
+        "modeChanges": "Mudanças de modo"
+      }
+    },
+    "sections": {
+      "capacity": "Capacidade",
+      "capacityDescription": "Limites da fila e backlog máximo aceito pela instância.",
+      "sla": "SLA",
+      "slaDescription": "Janela máxima de entrega por prioridade antes de a mensagem ficar obsoleta.",
+      "delays": "Atrasos",
+      "delaysDescription": "Faixas aleatórias de atraso aplicadas por modo de congestionamento e prioridade.",
+      "optimizations": "Otimizações",
+      "optimizationsDescription": "Controles de deduplicação, consolidação e simulação de digitação.",
+      "flowControl": "Controle de Fluxo",
+      "flowControlDescription": "Ritmo por conversa e limites que definem congestionamento."
+    },
+    "priority": {
+      "high": "Alta prioridade",
+      "medium": "Média prioridade",
+      "low": "Baixa prioridade"
+    },
+    "mode": {
+      "normal": "Modo normal",
+      "congested": "Modo congestionado",
+      "critical": "Modo crítico"
+    },
+    "form": {
+      "enabled": {
+        "label": "Ativa",
+        "description": "Ativar ou desativar a fila de saída desta instância"
+      },
+      "maxPendingPerConversation": {
+        "label": "Máximo pendente por conversa"
+      },
+      "maxETAMs": {
+        "label": "ETA máximo (ms)"
+      },
+      "delayMin": {
+        "label": "Atraso mínimo (ms)"
+      },
+      "delayMax": {
+        "label": "Atraso máximo (ms)"
+      },
+      "consolidationEnabled": {
+        "label": "Consolidação de mensagens",
+        "description": "Une mensagens de texto próximas da mesma conversa em um único envio"
+      },
+      "consolidationWindowMs": {
+        "label": "Janela de consolidação (ms)"
+      },
+      "consolidationSeparator": {
+        "label": "Separador"
+      },
+      "consolidationMaxMessages": {
+        "label": "Máximo de mensagens por união"
+      },
+      "deduplicationEnabled": {
+        "label": "Deduplicação",
+        "description": "Ignora payloads repetidos enviados em uma janela curta"
+      },
+      "deduplicationWindowMs": {
+        "label": "Janela de deduplicação (ms)"
+      },
+      "typingEnabled": {
+        "label": "Simulação de digitação",
+        "description": "Envia presença de digitação antes de despachar mensagens da fila"
+      },
+      "typingMin": {
+        "label": "Duração mínima de digitação (ms)"
+      },
+      "typingMax": {
+        "label": "Duração máxima de digitação (ms)"
+      },
+      "minIntervalMs": {
+        "label": "Intervalo mínimo por conversa (ms)"
+      },
+      "lockAfterSendMs": {
+        "label": "Bloqueio após envio (ms)"
+      },
+      "warnThresholdMs": {
+        "label": "Limite de alerta (ms)"
+      },
+      "criticalThresholdMs": {
+        "label": "Limite crítico (ms)"
       }
     },
     "button": {

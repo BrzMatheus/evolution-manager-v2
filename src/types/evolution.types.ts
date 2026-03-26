@@ -12,6 +12,70 @@ export type Settings = {
   instanceId?: string;
 };
 
+export type QueuePriority = "high" | "medium" | "low";
+
+export type QueueDelayRange = {
+  min: number;
+  max: number;
+};
+
+export type QueueConfig = {
+  enabled: boolean;
+  delays: {
+    normal: Record<QueuePriority, QueueDelayRange>;
+    congested: Record<QueuePriority, QueueDelayRange>;
+    critical: Record<QueuePriority, QueueDelayRange>;
+  };
+  sla: Record<QueuePriority, number>;
+  maxQueueSize: Record<QueuePriority, number>;
+  maxPendingPerConversation: number;
+  maxETAMs: number;
+  consolidation: {
+    enabled: boolean;
+    windowMs: number;
+    separator: string;
+    maxMessages: number;
+  };
+  perConversation: {
+    minIntervalMs: number;
+    lockAfterSendMs: number;
+  };
+  congestion: {
+    warnThresholdMs: number;
+    criticalThresholdMs: number;
+  };
+  deduplication: {
+    enabled: boolean;
+    windowMs: number;
+  };
+  typing: {
+    enabled: boolean;
+    durationMs: QueueDelayRange;
+  };
+};
+
+export type QueueConfigResponse = {
+  enabled: boolean;
+  config: QueueConfig;
+};
+
+export type QueueStatus = {
+  enabled: boolean;
+  message?: string;
+  queueSize?: number;
+  queueSizeByPriority?: Record<QueuePriority, number>;
+  etaMs?: number;
+  etaByPriority?: Record<QueuePriority, number>;
+  congestionMode?: "normal" | "congested" | "critical";
+  droppedCount?: number;
+  droppedLast5min?: number;
+  sentCount?: number;
+  sentDelayAvgMs?: number;
+  promotedCount?: number;
+  consolidatedCount?: number;
+  modeChanges?: number;
+};
+
 export type NewInstance = {
   instanceName: string;
   qrcode?: boolean;
