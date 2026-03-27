@@ -35,10 +35,19 @@ export type QueueConfig = {
     windowMs: number;
     separator: string;
     maxMessages: number;
+    mediaGroup: {
+      enabled: boolean;
+      windowMs: number;
+      maxSize: number;
+      delayMs: number;
+    };
   };
   perConversation: {
     minIntervalMs: number;
     lockAfterSendMs: number;
+    warmWindowMs: number;
+    warmLockAfterSendMs: number;
+    warmDelayMs: QueueDelayRange;
   };
   congestion: {
     warnThresholdMs: number;
@@ -65,14 +74,17 @@ export type QueueStatus = {
   queueSize?: number;
   queueSizeByPriority?: Record<QueuePriority, number>;
   etaMs?: number;
+  etaFormatted?: string;
   etaByPriority?: Record<QueuePriority, number>;
   congestionMode?: "normal" | "congested" | "critical";
   droppedCount?: number;
   droppedLast5min?: number;
   sentCount?: number;
   sentDelayAvgMs?: number;
+  sentDelayAvgByPriority?: Record<QueuePriority, number>;
   promotedCount?: number;
   consolidatedCount?: number;
+  mediaGroupedCount?: number;
   modeChanges?: number;
 };
 

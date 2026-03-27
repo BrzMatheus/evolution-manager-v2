@@ -60,10 +60,22 @@ const formSchema = z.object({
     windowMs: z.coerce.number().min(0),
     separator: z.string(),
     maxMessages: z.coerce.number().min(0),
+    mediaGroup: z.object({
+      enabled: z.boolean(),
+      windowMs: z.coerce.number().min(0),
+      maxSize: z.coerce.number().min(0),
+      delayMs: z.coerce.number().min(0),
+    }),
   }),
   perConversation: z.object({
     minIntervalMs: z.coerce.number().min(0),
     lockAfterSendMs: z.coerce.number().min(0),
+    warmWindowMs: z.coerce.number().min(0),
+    warmLockAfterSendMs: z.coerce.number().min(0),
+    warmDelayMs: z.object({
+      min: z.coerce.number().min(0),
+      max: z.coerce.number().min(0),
+    }),
   }),
   congestion: z.object({
     warnThresholdMs: z.coerce.number().min(0),
@@ -120,14 +132,23 @@ const defaultValues: FormSchemaType = {
     windowMs: 8000,
     separator: "\n",
     maxMessages: 5,
+    mediaGroup: {
+      enabled: true,
+      windowMs: 8000,
+      maxSize: 5,
+      delayMs: 1500,
+    },
   },
   perConversation: {
     minIntervalMs: 20000,
     lockAfterSendMs: 25000,
+    warmWindowMs: 60000,
+    warmLockAfterSendMs: 3000,
+    warmDelayMs: { min: 1000, max: 4000 },
   },
   congestion: {
     warnThresholdMs: 600000,
-    criticalThresholdMs: 1200000,
+    criticalThresholdMs: 900000,
   },
   deduplication: {
     enabled: true,
@@ -236,11 +257,11 @@ function Queue() {
                 ))}
                 <div className="rounded-lg border p-4">
                   <p className="text-sm text-muted-foreground">{t("queue.status.metrics.eta")}</p>
-                  <p className="mt-1 text-2xl font-semibold">{metricFormatter.format(queueStatus?.etaMs ?? 0)} ms</p>
+                  <p className="mt-1 text-2xl font-semibold">{queueStatus?.etaFormatted ?? "0s"}</p>
                 </div>
                 <div className="rounded-lg border p-4">
                   <p className="text-sm text-muted-foreground">{t("queue.status.metrics.avgDelay")}</p>
-                  <p className="mt-1 text-2xl font-semibold">{metricFormatter.format(queueStatus?.sentDelayAvgMs ?? 0)} ms</p>
+                  <p className="mt-1 text-2xl font-semibold">{metricFormatter.format(Math.round(queueStatus?.sentDelayAvgMs ?? 0))} ms</p>
                 </div>
                 <div className="rounded-lg border p-4">
                   <p className="text-sm text-muted-foreground">{t("queue.status.metrics.last5m")}</p>
@@ -249,6 +270,10 @@ function Queue() {
                 <div className="rounded-lg border p-4">
                   <p className="text-sm text-muted-foreground">{t("queue.status.metrics.modeChanges")}</p>
                   <p className="mt-1 text-2xl font-semibold">{metricFormatter.format(queueStatus?.modeChanges ?? 0)}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">{t("queue.status.metrics.mediaGrouped")}</p>
+                  <p className="mt-1 text-2xl font-semibold">{metricFormatter.format(queueStatus?.mediaGroupedCount ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -349,6 +374,26 @@ function Queue() {
 
                 <div className="space-y-4 rounded-lg border p-4">
                   <FormSwitch
+                    name="consolidation.mediaGroup.enabled"
+                    label={t("queue.form.mediaGroupEnabled.label")}
+                    className="w-full justify-between"
+                    helper={t("queue.form.mediaGroupEnabled.description")}
+                  />
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <FormInput name="consolidation.mediaGroup.windowMs" label={t("queue.form.mediaGroupWindowMs.label")}>
+                      <Input type="number" min={0} />
+                    </FormInput>
+                    <FormInput name="consolidation.mediaGroup.maxSize" label={t("queue.form.mediaGroupMaxSize.label")}>
+                      <Input type="number" min={0} />
+                    </FormInput>
+                    <FormInput name="consolidation.mediaGroup.delayMs" label={t("queue.form.mediaGroupDelayMs.label")}>
+                      <Input type="number" min={0} />
+                    </FormInput>
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded-lg border p-4">
+                  <FormSwitch
                     name="deduplication.enabled"
                     label={t("queue.form.deduplicationEnabled.label")}
                     className="w-full justify-between"
@@ -384,6 +429,18 @@ function Queue() {
                     <Input type="number" min={0} />
                   </FormInput>
                   <FormInput name="perConversation.lockAfterSendMs" label={t("queue.form.lockAfterSendMs.label")}>
+                    <Input type="number" min={0} />
+                  </FormInput>
+                  <FormInput name="perConversation.warmWindowMs" label={t("queue.form.warmWindowMs.label")}>
+                    <Input type="number" min={0} />
+                  </FormInput>
+                  <FormInput name="perConversation.warmLockAfterSendMs" label={t("queue.form.warmLockAfterSendMs.label")}>
+                    <Input type="number" min={0} />
+                  </FormInput>
+                  <FormInput name="perConversation.warmDelayMs.min" label={t("queue.form.warmDelayMsMin.label")}>
+                    <Input type="number" min={0} />
+                  </FormInput>
+                  <FormInput name="perConversation.warmDelayMs.max" label={t("queue.form.warmDelayMsMax.label")}>
                     <Input type="number" min={0} />
                   </FormInput>
                   <FormInput name="congestion.warnThresholdMs" label={t("queue.form.warnThresholdMs.label")}>

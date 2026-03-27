@@ -234,7 +234,8 @@
         "eta": "Tempo estimado para zerar",
         "avgDelay": "Atraso médio de envio",
         "last5m": "Descartadas em 5 min",
-        "modeChanges": "Mudanças de modo"
+        "modeChanges": "Mudanças de modo",
+        "mediaGrouped": "Imagens/docs agrupados"
       }
     },
     "sections": {
@@ -312,11 +313,36 @@
       "lockAfterSendMs": {
         "label": "Bloqueio após envio (ms)"
       },
+      "warmWindowMs": {
+        "label": "Janela de conversa ativa (ms)"
+      },
+      "warmLockAfterSendMs": {
+        "label": "Lock entre msgs rápidas (ms)"
+      },
+      "warmDelayMsMin": {
+        "label": "Delay mínimo - seguida (ms)"
+      },
+      "warmDelayMsMax": {
+        "label": "Delay máximo - seguida (ms)"
+      },
       "warnThresholdMs": {
         "label": "Limite de alerta (ms)"
       },
       "criticalThresholdMs": {
         "label": "Limite crítico (ms)"
+      },
+      "mediaGroupEnabled": {
+        "label": "Agrupamento de mídia",
+        "description": "Envia imagens/documentos em sequência rápida quando enviados dentro da janela"
+      },
+      "mediaGroupWindowMs": {
+        "label": "Janela de agrupamento (ms)"
+      },
+      "mediaGroupMaxSize": {
+        "label": "Máx. itens no grupo"
+      },
+      "mediaGroupDelayMs": {
+        "label": "Atraso entre itens (ms)"
       }
     },
     "button": {
